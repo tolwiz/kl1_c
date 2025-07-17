@@ -1,22 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Define data structure for rules.  */
+/* Define data structure for atoms. */
+typedef struct {
+    char *name;
+} Atom;
+
+/* Define data structure for rules. */
 typedef enum {
     IMPERATIVE,
     PERMISSIVE
 } RuleType;
 
 typedef struct {
-    char *body;
+    Atom *body;
     int n_atoms_in_body;
-    char *head;
+    Atom *head;
     int n_atoms_in_head;
     RuleType ruletype;
 } Rule;
 
+/* Define data structure for definite clauses. */
+typedef struct {
+    Atom *body;
+    int n_atoms_in_body;
+    Atom *head;
+} DefiniteClause;
+
 /* Print all atoms already performed, A in paper. */
-void printfacts(char facts[], int n_atoms_in_facts) {
+void printfacts(Atom facts[], int n_atoms_in_facts) {
     printf("Facts: ");
     for (int i=0; i<n_atoms_in_facts; i++) {
         printf("%c", facts[i]);
@@ -40,19 +52,17 @@ void printrule(Rule r) {
     printf("\n");
 }
 
-/* Function for encoding definite clauses, defr in paper.
-void defr(Rule rules[],int n_of_rules) {
-    for (int i=0; i<n_of_rules; i++) {
-        char *B = rules[i].body;
-        char *C = rules[i].head;
-        
-        if(rules[i].ruletype == IMPERATIVE) {
-            
-        } else {
-
-        }
+/* Function for encoding definite clauses, defr in paper. */
+void encodedefiniteclauses(Rule rule, DefiniteClause definite_clause) {
+    char *B = rules.body;
+    char *C = rules.head;
+    
+    if(rules.ruletype == IMPERATIVE) {
+                
+    } else {
+        definite_clause
     }
-} */
+}
 
 int main() {
     // Add facts
@@ -84,6 +94,12 @@ int main() {
     rules[1].head[0] = 'r';
     rules[1].head[1] = 's';
     rules[1].ruletype = PERMISSIVE;
+
+    // Initialize definite clauses
+    DefiniteClause definite_clauses* = malloc(n_of_rules * sizeof(DefiniteClause));
+    for (int i=0; i<n_of_rules; i++) {
+        encodedefiniteclauses(rules[i], definite_clauses[i]);        
+    }
 
     printfacts(facts, n_atoms_in_facts);
 
