@@ -2,9 +2,7 @@
 #include <stdlib.h>
 
 /* Define data structure for atoms. */
-typedef struct {
-    char *name;
-} Atom;
+typedef char  Atom;
 
 /* Define data structure for rules. */
 typedef enum {
@@ -24,7 +22,7 @@ typedef struct {
 typedef struct {
     Atom *body;
     int n_atoms_in_body;
-    Atom *head;
+    Atom head;
 } DefiniteClause;
 
 /* Print all atoms already performed, A in paper. */
@@ -53,15 +51,28 @@ void printrule(Rule r) {
 }
 
 /* Function for encoding definite clauses, defr in paper. */
-void encodedefiniteclauses(Rule rule, DefiniteClause definite_clause) {
-    char *B = rules.body;
-    char *C = rules.head;
+DefiniteClause *encodedefiniteclauses(Rule rule) {
+    DefiniteClause *defr = malloc(rule.n_atoms_in_head*sizeof(DefiniteClause));
+
+    char *B = rule.body;
     
-    if(rules.ruletype == IMPERATIVE) {
-                
-    } else {
-        definite_clause
+    if (rule.ruletype == PERMISSIVE) {
+        defr[0].body[0] = '/';
+        defr[0].head = '/';
+        defr[0].n_atoms_in_body = 0; 
+    } 
+    
+    for (int i=0; i<rule.n_atoms_in_head; i++) {
+        if (rule.ruletype == PERMISSIVE) {
+            defr[i+1].body = B;
+            defr[i+1].head = rule.head[i]; 
+        } else {
+            defr[i].body = B;
+            defr[i].head = rule.head[i];
+        }
     }
+
+    return defr;
 }
 
 int main() {
@@ -96,10 +107,7 @@ int main() {
     rules[1].ruletype = PERMISSIVE;
 
     // Initialize definite clauses
-    DefiniteClause definite_clauses* = malloc(n_of_rules * sizeof(DefiniteClause));
-    for (int i=0; i<n_of_rules; i++) {
-        encodedefiniteclauses(rules[i], definite_clauses[i]);        
-    }
+    //DefiniteClause defr* = malloc(n_of_rules * sizeof(DefiniteClause));
 
     printfacts(facts, n_atoms_in_facts);
 
