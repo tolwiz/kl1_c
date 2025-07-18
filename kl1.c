@@ -69,10 +69,8 @@ DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
     }
 
     DefiniteClause *defr = safemalloc(n_defr*sizeof(DefiniteClause));
-
-    char *B = rule.body;
-   
-   int offset = 0;
+    int offset = 0;
+    
     if (rule.ruletype == PERMISSIVE) {
         defr[0].body = safemalloc(sizeof(Atom));
         defr[0].body[0] = '0';
@@ -82,10 +80,25 @@ DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
     } 
     
     for (int i=0; i<rule.n_atoms_in_head; i++) {
+        
         if (rule.ruletype == PERMISSIVE) {
-            defr[i+offset].body = B;
-            defr[i+offset].head = rule.head[i];
             defr[i+offset].n_atoms_in_body = rule.n_atoms_in_body;
+            defr[i+offset].body = safemalloc(rule.n_atoms_in_body*sizeof(Atom));
+            
+            for (int j=0; j<rule.n_atoms_in_body; j++) {
+                defr[i+offset].body[j] = rule.body[j];
+            }
+
+            defr[i+offset].head = rule.head[i];
+        } else {
+            defr[i].n_atoms_in_body = rule.n_atoms_in_body;
+            defr[i].body = safemalloc(rule.n_atoms_in_body*sizeof(Atom));
+            
+            for (int j=0; j<rule.n_atoms_in_body; j++) {
+                defr[i].body[j] = rule.body[j];
+            }
+
+            defr[i].head = rule.head[i];
         }     
     }
 
@@ -124,13 +137,23 @@ int main() {
     rules[1].head[1] = 's';
     rules[1].ruletype = PERMISSIVE;
 
+    
     // Initialize definite clauses
     //DefiniteClause defr* = safemalloc(n_of_rules * sizeof(DefiniteClause));
-
+    int n_clauses;
+    DefiniteClause *defr1 = encodedefiniteclauses(rules[0], &n_clauses);
     printfacts(facts, n_atoms_in_facts);
 
     for (int i=0; i<n_of_rules; i++) {
         printrule(rules[i]);
+    }
+    
+    for (int i=0; i<n_clauses; i++) {
+        printf("Clause %d ", i);
+        for (int j=0; j<defr1[i].body[j]; j++) {
+            printf("%c ", defr1[i].body[j]);
+        }
+        printf("=> %c\n", defr1[i].head);
     }
 
     for (int i=0; i<n_of_rules; i++) {
