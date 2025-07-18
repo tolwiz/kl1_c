@@ -97,20 +97,12 @@ DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
         if (rule.ruletype == PERMISSIVE) {
             defr[i+offset].n_atoms_in_body = rule.n_atoms_in_body;
             defr[i+offset].body = safemalloc(rule.n_atoms_in_body*sizeof(Atom));
-            
-            for (int j=0; j<rule.n_atoms_in_body; j++) {
-                defr[i+offset].body[j] = rule.body[j];
-            }
-
+            for (int j=0; j<rule.n_atoms_in_body; j++) defr[i+offset].body[j] = rule.body[j];
             defr[i+offset].head = rule.head[i];
         } else {
             defr[i].n_atoms_in_body = rule.n_atoms_in_body;
             defr[i].body = safemalloc(rule.n_atoms_in_body*sizeof(Atom));
-            
-            for (int j=0; j<rule.n_atoms_in_body; j++) {
-                defr[i].body[j] = rule.body[j];
-            }
-
+            for (int j=0; j<rule.n_atoms_in_body; j++) defr[i].body[j] = rule.body[j];
             defr[i].head = rule.head[i];
         }     
     }
@@ -123,9 +115,7 @@ DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
 void printdefiniteclauses(DefiniteClause *defr, int n_clauses) {
     for (int i=0; i<n_clauses; i++) {
         printf("Clause %d ", i);
-        for (int j=0; j<defr[i].body[j]; j++) {
-            printf("%c ", defr[i].body[j]);
-        }
+        for (int j=0; j<defr[i].body[j]; j++) printf("%c ", defr[i].body[j]);
         printf("=> %c\n", defr[i].head);
     }
 }
@@ -154,9 +144,7 @@ int main() {
     
     printfacts(facts, n_atoms_in_facts);
 
-    for (int i=0; i<n_of_rules; i++) {
-        printrule(rules[i]);
-    }
+    for (int i=0; i<n_of_rules; i++) printrule(rules[i]);
 
     printdefiniteclauses(defr1, n_clauses1);
     printdefiniteclauses(defr2, n_clauses2);
