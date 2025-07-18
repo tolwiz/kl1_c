@@ -60,6 +60,19 @@ void printrule(Rule r) {
     printf("\n");
 }
 
+/* Function for encoding single rule */
+Rule encoderule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head[], RuleType ruletype) {
+    Rule r;
+    r.n_atoms_in_body = n_atoms_in_body;
+    r.body = safemalloc(n_atoms_in_body*sizeof(char));
+    for (int i=0; i<n_atoms_in_body; i++) r.body[i] = body[i];
+    r.n_atoms_in_head = n_atoms_in_head;
+    r.head = safemalloc(n_atoms_in_head*sizeof(char));
+    for (int i=0; i<n_atoms_in_head; i++) r.head[i] = head[i];
+    r.ruletype = ruletype;
+    return r;
+}
+
 /* Function for encoding definite clauses, defr in paper. */
 DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
     int n_defr = rule.n_atoms_in_head;
@@ -106,6 +119,17 @@ DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
     return defr;
 }
 
+
+void printdefiniteclauses(DefiniteClause *defr, int n_clauses) {
+    for (int i=0; i<n_clauses; i++) {
+        printf("Clause %d ", i);
+        for (int j=0; j<defr[i].body[j]; j++) {
+            printf("%c ", defr[i].body[j]);
+        }
+        printf("=> %c\n", defr[i].head);
+    }
+}
+
 int main() {
     // Add facts
     int n_atoms_in_facts = 3;
@@ -115,46 +139,27 @@ int main() {
     int n_of_rules = 2;
     Rule *rules = safemalloc(n_of_rules * sizeof(Rule));
 
-    // r1
-    rules[0].n_atoms_in_body = 2;
-    rules[0].body = safemalloc(rules[0].n_atoms_in_body*sizeof(char));
-    rules[0].body[0] = 'p';
-    rules[0].body[1] = 'q';
-    rules[0].n_atoms_in_head = 2;
-    rules[0].head = safemalloc(rules[0].n_atoms_in_head*sizeof(char));
-    rules[0].head[0] = 'r';
-    rules[0].head[1] = 's';
-    rules[0].ruletype = IMPERATIVE;
-
-    // r2
-    rules[1].n_atoms_in_body = 2;
-    rules[1].body = safemalloc(rules[1].n_atoms_in_body*sizeof(char));
-    rules[1].body[0] = 'r';
-    rules[1].body[1] = 's';
-    rules[1].n_atoms_in_head = 2;
-    rules[1].head = safemalloc(rules[1].n_atoms_in_head*sizeof(char));
-    rules[1].head[0] = 'r';
-    rules[1].head[1] = 's';
-    rules[1].ruletype = PERMISSIVE;
-
+    Atom r1_body[] = { 'p', 'q' };
+    Atom r1_head[] = { 'r', 's' };
+    rules[0] = encoderule(2, 2, r1_body, r1_head, IMPERATIVE);
+    Atom r2_body[] = { 'r', 's' }; 
+    Atom r2_head[] = { 'r', 's' };
+    rules[1] = encoderule(2, 2, r2_body, r2_head, PERMISSIVE);
     
     // Initialize definite clauses
-    //DefiniteClause defr* = safemalloc(n_of_rules * sizeof(DefiniteClause));
-    int n_clauses;
-    DefiniteClause *defr1 = encodedefiniteclauses(rules[0], &n_clauses);
+    int n_clauses1;
+    int n_clauses2;
+    DefiniteClause *defr1 = encodedefiniteclauses(rules[0], &n_clauses1);
+    DefiniteClause *defr2 = encodedefiniteclauses(rules[1], &n_clauses2);
+    
     printfacts(facts, n_atoms_in_facts);
 
     for (int i=0; i<n_of_rules; i++) {
         printrule(rules[i]);
     }
-    
-    for (int i=0; i<n_clauses; i++) {
-        printf("Clause %d ", i);
-        for (int j=0; j<defr1[i].body[j]; j++) {
-            printf("%c ", defr1[i].body[j]);
-        }
-        printf("=> %c\n", defr1[i].head);
-    }
+
+    printdefiniteclauses(defr1, n_clauses1);
+    printdefiniteclauses(defr2, n_clauses2);
 
     for (int i=0; i<n_of_rules; i++) {
         free(rules[i].body);
