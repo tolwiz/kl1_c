@@ -77,9 +77,7 @@ Rule encoderule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head
 DefiniteClause *encodedefiniteclauses(Rule rule, int *n_definite_clauses) {
     int n_defr = rule.n_atoms_in_head;
 
-    if (rule.ruletype == PERMISSIVE) {
-        n_defr += 1; // Add space for the case in which we don't chooose ay
-    }
+    if (rule.ruletype == PERMISSIVE) n_defr += 1; // Add space for the case in which we don't choose any
 
     DefiniteClause *defr = safemalloc(n_defr*sizeof(DefiniteClause));
     int offset = 0;
@@ -158,6 +156,7 @@ int main() {
     DefiniteClause *defr2 = encodedefiniteclauses(rules[1], &n_clauses2);
     DefiniteClause *defr3 = encodedefiniteclauses(rules[2], &n_clauses3);
     
+    // Print stuff
     printfacts(facts, n_atoms_in_facts);
 
     for (int i=0; i<n_of_rules; i++) printrule(rules[i]);
@@ -170,8 +169,8 @@ int main() {
         free(rules[i].body);
         free(rules[i].head);
     }
+ 
     free(rules);
-
     return 0;
 }
 
