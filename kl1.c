@@ -18,18 +18,24 @@ typedef struct {
     RuleType ruletype;
 } Rule;
 
-/* Define data structure for definite clauses. */
+/* Define data structure for a single definite clause. */
 typedef struct {
     Atom *body;
     int n_atoms_in_body;
     Atom head;
 } DefiniteClause;
 
-/* Safe malloc */
+/* Define data structure for defr. */
+typedef struct {
+    DefiniteClause *clauses;
+    int n_clauses;
+} Defr;
+
+/* Safe malloc. */
 void *safe_malloc(size_t size) {
     void *ptr = malloc(size);
     if (!ptr) {
-        perror("malloc failed!");
+        perror("Malloc failed!");
         exit(EXIT_FAILURE);
     }
     return ptr;
@@ -60,70 +66,90 @@ void print_rule(Rule r) {
     printf("\n");
 }
 
-/* Function for encoding single rule */
+/* Function for encoding single rule. */
 Rule encode_rule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head[], RuleType ruletype) {
     Rule r;
     r.n_atoms_in_body = n_atoms_in_body;
-    r.body = safe_malloc(n_atoms_in_body*sizeof(char));
-    for (int i=0; i<n_atoms_in_body; i++) r.body[i] = body[i];
+    r.body = safe_malloc(n_atoms_in_body * sizeof(char));
+    for (int i = 0; i < n_atoms_in_body; i++) r.body[i] = body[i];
     r.n_atoms_in_head = n_atoms_in_head;
-    r.head = safe_malloc(n_atoms_in_head*sizeof(char));
-    for (int i=0; i<n_atoms_in_head; i++) r.head[i] = head[i];
+    r.head = safe_malloc(n_atoms_in_head * sizeof(char));
+    for (int i = 0; i < n_atoms_in_head; i++) r.head[i] = head[i];
     r.ruletype = ruletype;
     return r;
 }
 
-/* Function for encoding definite clauses, defr in paper. */
-DefiniteClause *encode_definite_clauses(Rule rule, int *n_definite_clauses) {
-    int n_defr = rule.n_atoms_in_head;
+/* Function for encoding defr. */
+Defr *encode_defr(Rule rule, int *n_clause_sets) {
+    int n_atoms_in_head = rule.n_atoms_in_head;
 
-    if (rule.ruletype == PERMISSIVE) n_defr += 1; // Add space for the case in which we don't choose any
-
-    DefiniteClause *defr = safe_malloc(n_defr*sizeof(DefiniteClause));
-    int offset = 0;
-    
-    // If head is empty, return an empty clause
-    if (rule.head[0] == '/') {
-        defr[0].body = safe_malloc(sizeof(Atom));
-        defr[0].body[0] = '/';
-        defr[0].head = '/';
-        defr[0].n_atoms_in_body = 1;
-        *n_definite_clauses = n_defr;
+    // Void head
+    if (n_atoms_in_head == 0) {
+        Defr *defr = safe_malloc(sizeof(Defr));
+        defr[0].n_clauses = 1;
+        defr[0].clauses = safe_malloc(sizeof(DefiniteClause));
+        defr[0].clauses[0].head = '/';
+        defr[0].clauses[0].n_atoms_in_body = rule.n_atoms_in_body;
+        defr[0].clauses[0].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
+        for (int i = 0; i < rule.n_atoms_in_body; i++) defr[0].clauses[0].body[i] = rule.body[i];
+        *n_clause_sets = 1;
         return defr;
     }
 
-    if (rule.ruletype == PERMISSIVE) {
-        defr[0].body = safe_malloc(sizeof(Atom));
-        defr[0].body[0] = '0';
-        defr[0].head = '0';
-        defr[0].n_atoms_in_body = 1;
-        offset = 1;
-    } 
-    
-    for (int i=0; i<rule.n_atoms_in_head; i++) {
-        if (rule.ruletype == PERMISSIVE) {
-            defr[i+offset].n_atoms_in_body = rule.n_atoms_in_body;
-            defr[i+offset].body = safe_malloc(rule.n_atoms_in_body*sizeof(Atom));
-            for (int j=0; j<rule.n_atoms_in_body; j++) defr[i+offset].body[j] = rule.body[j];
-            defr[i+offset].head = rule.head[i];
-        } else {
-            defr[i].n_atoms_in_body = rule.n_atoms_in_body;
-            defr[i].body = safe_malloc(rule.n_atoms_in_body*sizeof(Atom));
-            for (int j=0; j<rule.n_atoms_in_body; j++) defr[i].body[j] = rule.body[j];
-            defr[i].head = rule.head[i];
-        }     
-    }
+    int total_subsets = 1 << n_atoms_in_head; // 2^n possible subsets of C
+    int exclude_void_subset = (rule.ruletype == IMPERATIVE) ? 1 : 0; // Exclude void subset if the rule is imperative
+    Defr *defr = safe_malloc(total_subsets * sizeof(Defr));
+    int n_clause_sets_generated = 0;
+    for(int bitmask = exclude_void_subset; bitmask < total_subsets; bitmask++) { // Cycle through all possible binary masks ie all possible subsets of C
+        int clause_count = 0;
+        for (int i = 0; i < n_atoms_in_head; i++) if (bitmask & (1 << i)) clause_count++; // Count how many atoms we have in the subset mask, to know how many clauses there will be in defr for this subset
+        if(clause_count == 0) continue; // For imperatives this never happens because of exclude_void_subset, and for permissives it jumps at the next iteration, since the case is already managed previously
+        defr[n_clause_sets_generated].n_clauses = clause_count; 
+        defr[n_clause_sets_generated].clauses   = safe_malloc(clause_count * sizeof(DefiniteClause)); // Alloc the right number of clauses in defr
 
-    *n_definite_clauses = n_defr;
+        int clause_index = 0; // Every time an atom is selected in bitmask, write it in clauses[clause_index], then iterate at next slot
+        for (int i = 0; i < n_atoms_in_head; i++) {
+            if (bitmask & (1 << i)) {
+                defr[n_clause_sets_generated].clauses[clause_index].head            = rule.head[i];
+                defr[n_clause_sets_generated].clauses[clause_index].n_atoms_in_body = rule.n_atoms_in_body;
+                defr[n_clause_sets_generated].clauses[clause_index].body            = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
+                for (int j = 0; j < rule.n_atoms_in_body; j++) defr[n_clause_sets_generated].clauses[clause_index].body[j] = rule.body[j];
+                clause_index++;
+            }
+        }
+        n_clause_sets_generated++;
+    }
+    *n_clause_sets = n_clause_sets_generated;
     return defr;
 }
 
+/* Function for printing single definite clause. */
+//void print_definite_clause(DefiniteClause *defr, int n_clauses) {
+//}
 
-void print_definite_clauses(DefiniteClause *defr, int n_clauses) {
-    for (int i=0; i<n_clauses; i++) {
-        printf("Clause %d ", i);
-        for (int j=0; j<defr[i].body[j]; j++) printf("%c ", defr[i].body[j]);
-        printf("=> %c\n", defr[i].head);
+/* Function for printing a single definite clause. */
+void print_definite_clause(DefiniteClause c) {
+    printf("%c ←", c.head);
+    for (int i = 0; i < c.n_atoms_in_body; i++) {
+        printf(" %c", c.body[i]);
+        if (i < c.n_atoms_in_body - 1) printf(",");
+    }
+    printf("\n");
+}
+
+/* Function for printing a set of clauses. */
+void print_clause_set(Defr set, int index) {
+    printf("Defr %d:\n", index);
+    for (int i = 0; i < set.n_clauses; i++) {
+        print_definite_clause(set.clauses[i]);
+    }
+}
+
+/* Function for printing all clause sets generated by a single rule, defr. */
+void print_defr(Defr *sets, int n_sets) {
+    for (int i = 0; i < n_sets; i++) {
+        print_clause_set(sets[i], i);
+        printf("\n");
     }
 }
 
@@ -141,7 +167,7 @@ int main() {
     rules[0] = encode_rule(2, 2, r1_body, r1_head, IMPERATIVE);
 
     Atom r2_body[] = { 'r', 's' }; 
-    Atom r2_head[] = { 'r', 's' };
+    Atom r2_head[] = { 't', 'u' };
     rules[1] = encode_rule(2, 2, r2_body, r2_head, PERMISSIVE);
     
     Atom r3_body[] = { 'x', 'y' }; 
@@ -152,24 +178,22 @@ int main() {
     int n_clauses1;
     int n_clauses2;
     int n_clauses3;
-    DefiniteClause *defr1 = encode_definite_clauses(rules[0], &n_clauses1);
-    DefiniteClause *defr2 = encode_definite_clauses(rules[1], &n_clauses2);
-    DefiniteClause *defr3 = encode_definite_clauses(rules[2], &n_clauses3);
+    Defr *defr1 = encode_defr(rules[0], &n_clauses1);
+    Defr *defr2 = encode_defr(rules[1], &n_clauses2);
+    Defr *defr3 = encode_defr(rules[2], &n_clauses3);
     
     // Print stuff
     print_facts(facts, n_atoms_in_facts);
-
     for (int i=0; i<n_of_rules; i++) print_rule(rules[i]);
+    print_defr(defr1, n_clauses1);
+    print_defr(defr2, n_clauses2);
+    print_defr(defr3, n_clauses3);
 
-    print_definite_clauses(defr1, n_clauses1);
-    print_definite_clauses(defr2, n_clauses2);
-    print_definite_clauses(defr3, n_clauses3);
-
+    // Free memory allocations
     for (int i=0; i<n_of_rules; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
- 
     free(rules);
     return 0;
 }
