@@ -108,23 +108,24 @@ void print_facts(Atom facts[], int n_atoms_in_facts) {
     printf("\n");
 }
 
-/* Function for printing a single rule. */
 void print_rule(Rule r) {
     for (int i = 0; i < r.n_atoms_in_body; i++) {
         printf("%c", r.body[i]);
         if (i < r.n_atoms_in_body - 1) printf(", ");
     }
+
     if (r.ruletype == IMPERATIVE) {
         printf(" ⊢ ");
     } else {
         printf(" ⊣ ");
     }
+
     if (r.head[0] == '/') {
         printf("⊥");
     } else {
         for (int i = 0; i < r.n_atoms_in_head; i++) {
             printf("%c", r.head[i]);
-            if (i < r.n_atoms_in_head - 1) printf(", ");
+            if (i < r.n_atoms_in_head - 1) printf(" ∨ ");
         }
     }
 }
@@ -144,18 +145,35 @@ void print_definite_clause(DefiniteClause c) {
 }
 
 /* Function for printing defr of a single rule. */
-void print_defr(Defr *sets, int n_sets, Rule rule, int rule_index) {
-    printf("\ndefr for the rule %d: ", rule_index);
+void print_defr(Defr *sets, int n_sets, Rule rule) {
+    printf("defᵣ(");
     print_rule(rule);
-    printf("\n");
+    printf(") = {");
 
     for (int i = 0; i < n_sets; i++) {
-        printf("  Clause set %d:\n", i);
+        printf("{");
         for (int j = 0; j < sets[i].n_clauses; j++) {
-            printf("    ");
-            print_definite_clause(sets[i].clauses[j]);
+            DefiniteClause c = sets[i].clauses[j];
+            
+            if (c.head == '/') {
+                printf("⊥ ← ");
+            } else {
+                printf("%c ← ", c.head);
+            }
+            
+            printf("{");
+            for (int k = 0; k < c.n_atoms_in_body; k++) {
+                printf("%c", c.body[k]);
+                if (k < c.n_atoms_in_body - 1) printf(", ");
+            }
+            printf("}");
+
+            if (j < sets[i].n_clauses - 1) printf(", ");
         }
+        printf("}");
+        if (i < n_sets - 1) printf(", ");
     }
+    printf("}\n");
 }
 
 int main() {
@@ -189,13 +207,14 @@ int main() {
     
     // Print stuff
     print_facts(facts, n_atoms_in_facts);
+    printf("Rules: \n");
     for (int i = 0; i < n_of_rules; i++) {
         print_rule(rules[i]);
         printf("\n");
     }
-    print_defr(defr1, n_clauses1, rules[0], 0);
-    print_defr(defr2, n_clauses2, rules[1], 1);
-    print_defr(defr3, n_clauses3, rules[2], 2);
+    print_defr(defr1, n_clauses1, rules[0]);
+    print_defr(defr2, n_clauses2, rules[1]);
+    print_defr(defr3, n_clauses3, rules[2]);
 
     // Free memory allocations
     for (int i=0; i<n_of_rules; i++) {
