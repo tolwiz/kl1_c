@@ -1,10 +1,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-/* Define data structure for atoms. */
+/* Safe malloc. */
+void *safe_malloc(size_t size) {
+    void *ptr = malloc(size);
+    if (!ptr) {
+        perror("Malloc failed!");
+        exit(EXIT_FAILURE);
+    }
+    return ptr;
+}
+
+/* Define data structure for a single atom. */
 typedef char Atom;
 
-/* Define data structure for rules. */
+/* Define data structure for a single rule. */
 typedef enum {
     IMPERATIVE,
     PERMISSIVE
@@ -25,21 +35,11 @@ typedef struct {
     Atom head;
 } DefiniteClause;
 
-/* Define data structure for defr. */
+/* Define data structure for a single definite program. */
 typedef struct {
     DefiniteClause *clauses;
     int n_clauses;
 } DefiniteProgram;
-
-/* Safe malloc. */
-void *safe_malloc(size_t size) {
-    void *ptr = malloc(size);
-    if (!ptr) {
-        perror("Malloc failed!");
-        exit(EXIT_FAILURE);
-    }
-    return ptr;
-}
 
 /* Function for encoding single rule. */
 Rule encode_rule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head[], RuleType ruletype) {
@@ -132,7 +132,7 @@ DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
         defrs[i] = encode_defr(rules[i], &n_options[i]);
     }
     
-    /* Compute total number of definite programs. */
+    /* Compute total number of definite programs in def(R). */
     int total = 1;
     for (int i = 0; i < n_rules; i++) total *= n_options[i];
     *n_total_programs = total;
@@ -182,7 +182,7 @@ DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
     return all_programs;
 }
 
-/* Print all atoms already performed, A in paper. */
+/* Function for printing all atoms already performed, A in paper. */
 void print_facts(Atom facts[], int n_atoms_in_facts) {
     printf("Facts: ");
     for (int i = 0; i < n_atoms_in_facts; i++) {
@@ -213,51 +213,43 @@ void print_rule(Rule r) {
     }
 }
 
-/* Function for printing a single definite clause. */
-void print_definite_clause(DefiniteClause c) {
+/* Function for printing a single definite clause, with optional trailing comma. */
+void print_definite_clause(DefiniteClause c, int with_comma) {
     if (c.head == '/') {
-        printf("⊥ ← {");
+        printf("⊥ ← ");
     } else {
-        printf("%c ← {", c.head);
+        printf("%c ← ", c.head);
     }
-    for (int i = 0; i < c.n_atoms_in_body; i++) {
-        printf("%c", c.body[i]);
-        if (i < c.n_atoms_in_body - 1) printf(", ");
+    if (c.n_atoms_in_body == 0) {
+        printf("{}");
+    } else {
+        printf("{");
+        for (int i = 0; i < c.n_atoms_in_body; i++) {
+            printf("%c", c.body[i]);
+            if (i < c.n_atoms_in_body - 1) printf(", ");
+        }
+        printf("}");
     }
-    printf("\n");
+    if (with_comma) printf(", ");
 }
 
-/* Function for printing defᵣ(r) in a clean multiline format. */
+/* Function for printing a single definite program. */
+void print_definite_program(DefiniteProgram prog) {
+    printf("{");
+    for (int j = 0; j < prog.n_clauses; j++) {
+        print_definite_clause(prog.clauses[j], j < prog.n_clauses - 1);
+    }
+    printf("}");
+}
+
+/* Function for printing defᵣ(r). */
 void print_defr(DefiniteProgram *sets, int n_sets, Rule rule) {
     printf("defᵣ(");
     print_rule(rule);
     printf(") = {\n");
     for (int i = 0; i < n_sets; i++) {
-        printf("  {");
-        if (sets[i].n_clauses == 0) {
-            printf("}"); // Print empty clause set.
-        } else {
-            for (int j = 0; j < sets[i].n_clauses; j++) {
-                DefiniteClause c = sets[i].clauses[j];
-                if (c.head == '/') {
-                    printf("⊥ ← ");
-                } else {
-                    printf("%c ← ", c.head);
-                }
-                if (c.n_atoms_in_body == 0) {
-                    printf("{}");
-                } else {
-                    printf("{");
-                    for (int k = 0; k < c.n_atoms_in_body; k++) {
-                        printf("%c", c.body[k]);
-                        if (k < c.n_atoms_in_body - 1) printf(", ");
-                    }
-                    printf("}");
-                }
-                if (j < sets[i].n_clauses - 1) printf(", ");
-            }
-            printf("}");
-        }
+        printf("  ");
+        print_definite_program(sets[i]);
         if (i < n_sets - 1) printf(",\n");
         else printf("\n");
     }
@@ -268,33 +260,10 @@ void print_defr(DefiniteProgram *sets, int n_sets, Rule rule) {
 void print_def(DefiniteProgram *def, int n_programs) {
     printf("def(R) = {\n");
     for (int i = 0; i < n_programs; i++) {
-        printf("  {");
-        for (int j = 0; j < def[i].n_clauses; j++) {
-            DefiniteClause c = def[i].clauses[j];
-            if (c.head == '/') {
-                printf("⊥ ← ");
-            } else {
-                printf("%c ← ", c.head);
-            }
-            if (c.n_atoms_in_body == 0) {
-                printf("{}");
-            } else {
-                printf("{");
-                for (int k = 0; k < c.n_atoms_in_body; k++) {
-                    printf("%c", c.body[k]);
-                    if (k < c.n_atoms_in_body - 1)
-                        printf(", ");
-                }
-                printf("}");
-            }
-            if (j < def[i].n_clauses - 1)
-                printf(", ");
-        }
-        printf("}");
-        if (i < n_programs - 1)
-            printf(",\n");
-        else
-            printf("\n");
+        printf("  ");
+        print_definite_program(def[i]);
+        if (i < n_programs - 1) printf(",\n");
+        else printf("\n");
     }
     printf("}\n");
 }
