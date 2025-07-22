@@ -72,31 +72,33 @@ DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
     }
 
     /* 2^n possible subsets of C. */
-    int total_subsets = 1 << n_atoms_in_head; 
+    int total_subsets = 1 << n_atoms_in_head;
     DefiniteProgram *defr = safe_malloc(total_subsets * sizeof(DefiniteProgram));
     int n_definite_programs_generated = 0;
 
-    /* For permissive rules, include the empty program (i.e. do nothing). */
-    if (rule.ruletype == PERMISSIVE) {
-        defr[n_definite_programs_generated].n_clauses = 1;
-        defr[n_definite_programs_generated].clauses = safe_malloc(sizeof(DefiniteClause));
-        defr[n_definite_programs_generated].clauses[0].head = '0'; // convention for {}
-        defr[n_definite_programs_generated].clauses[0].n_atoms_in_body = 0;
-        defr[n_definite_programs_generated].clauses[0].body = NULL;
-        n_definite_programs_generated++;
-    }
-
     /* Cycle through all possible binary masks ie all 
-     * possible subsets of C except the void one. */
-    for(int bitmask = 1; bitmask < total_subsets; bitmask++) { 
+     * possible subsets of C. */
+    for(int bitmask = 0; bitmask < total_subsets; bitmask++) { 
         int clause_count = 0;
-        
+
         /* Count how many atoms we have in the subset 
          * mask, to know how many clauses there will be in 
          * defr for this subset. */
-        for (int i = 0; i < n_atoms_in_head; i++) if (bitmask & (1 << i)) clause_count++; 
+        for (int i = 0; i < n_atoms_in_head; i++) 
+            if (bitmask & (1 << i)) clause_count++; 
+
+        /* If void subset and rule is imperative, skip. */
+        if (clause_count == 0 && rule.ruletype == IMPERATIVE) continue;
+
+        /* If void subset and rule is permissive, add empty program. */
+        if (clause_count == 0 && rule.ruletype == PERMISSIVE) {
+            defr[n_definite_programs_generated].n_clauses = 0;
+            defr[n_definite_programs_generated].clauses = NULL;
+            n_definite_programs_generated++;
+            continue;
+        }
         defr[n_definite_programs_generated].n_clauses = clause_count; 
-        
+
         /* Allocate the right number of clauses in defr. */
         defr[n_definite_programs_generated].clauses = safe_malloc(clause_count * sizeof(DefiniteClause));
 
@@ -108,7 +110,8 @@ DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
                 defr[n_definite_programs_generated].clauses[clause_index].head = rule.head[i];
                 defr[n_definite_programs_generated].clauses[clause_index].n_atoms_in_body = rule.n_atoms_in_body;
                 defr[n_definite_programs_generated].clauses[clause_index].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
-                for (int j = 0; j < rule.n_atoms_in_body; j++) defr[n_definite_programs_generated].clauses[clause_index].body[j] = rule.body[j];
+                for (int j = 0; j < rule.n_atoms_in_body; j++) 
+                    defr[n_definite_programs_generated].clauses[clause_index].body[j] = rule.body[j];
                 clause_index++;
             }
         }
@@ -224,16 +227,16 @@ void print_definite_clause(DefiniteClause c) {
     printf("\n");
 }
 
-/* Function for printing defr of a single rule. */
+/* Function for printing defᵣ(r) in a clean multiline format. */
 void print_defr(DefiniteProgram *sets, int n_sets, Rule rule) {
     printf("defᵣ(");
     print_rule(rule);
-    printf(") = {");
+    printf(") = {\n");
     for (int i = 0; i < n_sets; i++) {
-        if (sets[i].n_clauses == 1 && sets[i].clauses[0].head == '0') {
-            printf("{}");
+        printf("  {");
+        if (sets[i].n_clauses == 0) {
+            printf("}"); // Print empty clause set.
         } else {
-            printf("{");
             for (int j = 0; j < sets[i].n_clauses; j++) {
                 DefiniteClause c = sets[i].clauses[j];
                 if (c.head == '/') {
@@ -241,17 +244,22 @@ void print_defr(DefiniteProgram *sets, int n_sets, Rule rule) {
                 } else {
                     printf("%c ← ", c.head);
                 }
-                printf("{");
-                for (int k = 0; k < c.n_atoms_in_body; k++) {
-                    printf("%c", c.body[k]);
-                    if (k < c.n_atoms_in_body - 1) printf(",");
+                if (c.n_atoms_in_body == 0) {
+                    printf("{}");
+                } else {
+                    printf("{");
+                    for (int k = 0; k < c.n_atoms_in_body; k++) {
+                        printf("%c", c.body[k]);
+                        if (k < c.n_atoms_in_body - 1) printf(", ");
+                    }
+                    printf("}");
                 }
-                printf("}");
                 if (j < sets[i].n_clauses - 1) printf(", ");
             }
             printf("}");
         }
-        if (i < n_sets - 1) printf(", ");
+        if (i < n_sets - 1) printf(",\n");
+        else printf("\n");
     }
     printf("}\n");
 }
@@ -295,27 +303,21 @@ int main() {
     int n_atoms_in_facts = 3;
     char facts[] = {'p', 'q', 'r'};
         
-    int n_of_rules = 3;
+    int n_of_rules = 2;
     Rule *rules = safe_malloc(n_of_rules * sizeof(Rule));
 
-    Atom r1_body[] = { 'p', 'q' };
-    Atom r1_head[] = { 'r', 's' };
-    rules[0] = encode_rule(2, 2, r1_body, r1_head, IMPERATIVE);
+    Atom r1_body[] = { 'p' };
+    Atom r1_head[] = { 'q', 'r' };
+    rules[0] = encode_rule(1, 2, r1_body, r1_head, PERMISSIVE);
 
-    Atom r2_body[] = { 'r', 's' }; 
-    Atom r2_head[] = { 't', 'u' };
-    rules[1] = encode_rule(2, 2, r2_body, r2_head, PERMISSIVE);
-    
-    Atom r3_body[] = { 'x', 'y' }; 
-    Atom r3_head[] = { '/' };
-    rules[2] = encode_rule(2, 1, r3_body, r3_head, IMPERATIVE);
+    Atom r2_body[] = { 'r' }; 
+    Atom r2_head[] = { 's' };
+    rules[1] = encode_rule(1, 1, r2_body, r2_head, IMPERATIVE);
     
     int n_clauses1;
     int n_clauses2;
-    int n_clauses3;
     DefiniteProgram *defr1 = encode_defr(rules[0], &n_clauses1);
     DefiniteProgram *defr2 = encode_defr(rules[1], &n_clauses2);
-    DefiniteProgram *defr3 = encode_defr(rules[2], &n_clauses3);
     
     print_facts(facts, n_atoms_in_facts);
     printf("Rules: \n");
@@ -325,10 +327,9 @@ int main() {
     }
     print_defr(defr1, n_clauses1, rules[0]);
     print_defr(defr2, n_clauses2, rules[1]);
-    print_defr(defr3, n_clauses3, rules[2]);
     
     int n_total_programs;
-    DefiniteProgram *def = encode_def(rules, 3, &n_total_programs);
+    DefiniteProgram *def = encode_def(rules, 2, &n_total_programs);
     print_def(def, n_total_programs);
 
     for (int i = 0; i < n_total_programs; i++) {
@@ -339,7 +340,7 @@ int main() {
     }
     free(def);
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
