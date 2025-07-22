@@ -29,7 +29,7 @@ typedef struct {
 typedef struct {
     DefiniteClause *clauses;
     int n_clauses;
-} Defr;
+} DefiniteProgram;
 
 /* Safe malloc. */
 void *safe_malloc(size_t size) {
@@ -55,77 +55,157 @@ Rule encode_rule(int n_atoms_in_body, int n_atoms_in_head, char body[], char hea
 }
 
 /* Function for encoding defr. */
-Defr *encode_defr(Rule rule, int *n_clause_sets) {
+DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
     int n_atoms_in_head = rule.n_atoms_in_head;
 
-    // Void head
+    /* Void head. */
     if (n_atoms_in_head == 0) {
-        Defr *defr = safe_malloc(sizeof(Defr));
+        DefiniteProgram *defr = safe_malloc(sizeof(DefiniteProgram));
         defr[0].n_clauses = 1;
         defr[0].clauses = safe_malloc(sizeof(DefiniteClause));
         defr[0].clauses[0].head = '/';
         defr[0].clauses[0].n_atoms_in_body = rule.n_atoms_in_body;
         defr[0].clauses[0].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
         for (int i = 0; i < rule.n_atoms_in_body; i++) defr[0].clauses[0].body[i] = rule.body[i];
-        *n_clause_sets = 1;
+        *n_definite_programs = 1;
         return defr;
     }
 
-    int total_subsets = 1 << n_atoms_in_head; // 2^n possible subsets of C
-    int exclude_void_subset = (rule.ruletype == IMPERATIVE) ? 1 : 0; // Exclude void subset if the rule is imperative
-    Defr *defr = safe_malloc(total_subsets * sizeof(Defr));
-    int n_clause_sets_generated = 0;
-    for(int bitmask = exclude_void_subset; bitmask < total_subsets; bitmask++) { // Cycle through all possible binary masks ie all possible subsets of C
-        int clause_count = 0;
-        for (int i = 0; i < n_atoms_in_head; i++) if (bitmask & (1 << i)) clause_count++; // Count how many atoms we have in the subset mask, to know how many clauses there will be in defr for this subset
-        if(clause_count == 0) continue; // For imperatives this never happens because of exclude_void_subset, and for permissives it jumps at the next iteration, since the case is already managed previously
-        defr[n_clause_sets_generated].n_clauses = clause_count; 
-        defr[n_clause_sets_generated].clauses   = safe_malloc(clause_count * sizeof(DefiniteClause)); // Alloc the right number of clauses in defr
+    /* 2^n possible subsets of C. */
+    int total_subsets = 1 << n_atoms_in_head; 
+    DefiniteProgram *defr = safe_malloc(total_subsets * sizeof(DefiniteProgram));
+    int n_definite_programs_generated = 0;
 
-        int clause_index = 0; // Every time an atom is selected in bitmask, write it in clauses[clause_index], then iterate at next slot
+    /* For permissive rules, include the empty program (i.e. do nothing). */
+    if (rule.ruletype == PERMISSIVE) {
+        defr[n_definite_programs_generated].n_clauses = 1;
+        defr[n_definite_programs_generated].clauses = safe_malloc(sizeof(DefiniteClause));
+        defr[n_definite_programs_generated].clauses[0].head = '0'; // convention for {}
+        defr[n_definite_programs_generated].clauses[0].n_atoms_in_body = 0;
+        defr[n_definite_programs_generated].clauses[0].body = NULL;
+        n_definite_programs_generated++;
+    }
+
+    /* Cycle through all possible binary masks ie all 
+     * possible subsets of C except the void one. */
+    for(int bitmask = 1; bitmask < total_subsets; bitmask++) { 
+        int clause_count = 0;
+        
+        /* Count how many atoms we have in the subset 
+         * mask, to know how many clauses there will be in 
+         * defr for this subset. */
+        for (int i = 0; i < n_atoms_in_head; i++) if (bitmask & (1 << i)) clause_count++; 
+        defr[n_definite_programs_generated].n_clauses = clause_count; 
+        
+        /* Allocate the right number of clauses in defr. */
+        defr[n_definite_programs_generated].clauses = safe_malloc(clause_count * sizeof(DefiniteClause));
+
+        /* Every time an atom is selected in bitmask, write 
+         * it in clauses[clause_index], then iterate at next slot. */
+        int clause_index = 0; 
         for (int i = 0; i < n_atoms_in_head; i++) {
             if (bitmask & (1 << i)) {
-                defr[n_clause_sets_generated].clauses[clause_index].head            = rule.head[i];
-                defr[n_clause_sets_generated].clauses[clause_index].n_atoms_in_body = rule.n_atoms_in_body;
-                defr[n_clause_sets_generated].clauses[clause_index].body            = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
-                for (int j = 0; j < rule.n_atoms_in_body; j++) defr[n_clause_sets_generated].clauses[clause_index].body[j] = rule.body[j];
+                defr[n_definite_programs_generated].clauses[clause_index].head = rule.head[i];
+                defr[n_definite_programs_generated].clauses[clause_index].n_atoms_in_body = rule.n_atoms_in_body;
+                defr[n_definite_programs_generated].clauses[clause_index].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
+                for (int j = 0; j < rule.n_atoms_in_body; j++) defr[n_definite_programs_generated].clauses[clause_index].body[j] = rule.body[j];
                 clause_index++;
             }
         }
-        n_clause_sets_generated++;
+        n_definite_programs_generated++;
     }
-    *n_clause_sets = n_clause_sets_generated;
+    *n_definite_programs = n_definite_programs_generated;
     return defr;
+}
+
+/* Function for translating a set of rules into a set of 
+ * definite programs, namely def(R). */
+DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
+    
+    /* Compute defᵣ(r) for each rule. */
+    int *n_options = safe_malloc(n_rules * sizeof(int)); // Total number of definite programs 
+    DefiniteProgram **defrs = safe_malloc(n_rules * sizeof(DefiniteProgram *));    
+    for (int i = 0; i < n_rules; i++) {
+        defrs[i] = encode_defr(rules[i], &n_options[i]);
+    }
+    
+    /* Compute total number of definite programs. */
+    int total = 1;
+    for (int i = 0; i < n_rules; i++) total *= n_options[i];
+    *n_total_programs = total;
+    DefiniteProgram *all_programs = safe_malloc(total * sizeof(DefiniteProgram));
+    
+    /* Cycle through all the combinations. p is the index for the 
+     * current combination, compute which element of defᵣ(rᵢ) to choose 
+     * for each rule, using division and module to run through all 
+     * combinations. */
+    for (int p = 0; p < total; p++) {
+        int *choice = safe_malloc(n_rules * sizeof(int));
+        int quotient = p;
+        for (int i = n_rules - 1; i >= 0; i--) {
+            choice[i] = quotient % n_options[i];
+            quotient /= n_options[i];
+        }
+        
+        /* Unify all choosen clauses in a definite program, adding
+         * the number of total clauses of the current combination and 
+         * allocating the space for the current definite program. */
+        int total_clauses = 0;
+        for (int i = 0; i < n_rules; i++) {
+            total_clauses += defrs[i][choice[i]].n_clauses;
+        }
+        all_programs[p].n_clauses = total_clauses;
+        all_programs[p].clauses = safe_malloc(total_clauses * sizeof(DefiniteClause));
+        
+        /* Copy the clauses from each choosen definite program. */
+        int idx = 0;
+        for (int i = 0; i < n_rules; i++) {
+            DefiniteProgram selected = defrs[i][choice[i]];
+            for (int j = 0; j < selected.n_clauses; j++) {
+                all_programs[p].clauses[idx].n_atoms_in_body = selected.clauses[j].n_atoms_in_body;
+                all_programs[p].clauses[idx].body = safe_malloc(selected.clauses[j].n_atoms_in_body * sizeof(Atom));
+                for (int k = 0; k < selected.clauses[j].n_atoms_in_body; k++) {
+                    all_programs[p].clauses[idx].body[k] = selected.clauses[j].body[k];
+                }
+                all_programs[p].clauses[idx].head = selected.clauses[j].head;
+                idx++;
+            }
+        }
+        free(choice);
+    }
+    for (int i = 0; i < n_rules; i++) free(defrs[i]);
+    free(defrs);
+    free(n_options);
+    return all_programs;
 }
 
 /* Print all atoms already performed, A in paper. */
 void print_facts(Atom facts[], int n_atoms_in_facts) {
     printf("Facts: ");
-    for (int i=0; i<n_atoms_in_facts; i++) {
+    for (int i = 0; i < n_atoms_in_facts; i++) {
         printf("%c", facts[i]);
-        if (i<n_atoms_in_facts-1) printf(", ");
+        if (i < n_atoms_in_facts-1) printf(", ");
     }
     printf("\n");
 }
 
+/* Function for printing a single rule. */
 void print_rule(Rule r) {
     for (int i = 0; i < r.n_atoms_in_body; i++) {
         printf("%c", r.body[i]);
-        if (i < r.n_atoms_in_body - 1) printf(", ");
+        if (i < r.n_atoms_in_body - 1) printf("∧");
     }
-
     if (r.ruletype == IMPERATIVE) {
         printf(" ⊢ ");
     } else {
         printf(" ⊣ ");
     }
-
     if (r.head[0] == '/') {
         printf("⊥");
     } else {
         for (int i = 0; i < r.n_atoms_in_head; i++) {
             printf("%c", r.head[i]);
-            if (i < r.n_atoms_in_head - 1) printf(" ∨ ");
+            if (i < r.n_atoms_in_head - 1) printf("∨");
         }
     }
 }
@@ -133,9 +213,9 @@ void print_rule(Rule r) {
 /* Function for printing a single definite clause. */
 void print_definite_clause(DefiniteClause c) {
     if (c.head == '/') {
-        printf("⊥ ← ");
+        printf("⊥ ← {");
     } else {
-        printf("%c ← ", c.head);
+        printf("%c ← {", c.head);
     }
     for (int i = 0; i < c.n_atoms_in_body; i++) {
         printf("%c", c.body[i]);
@@ -145,43 +225,76 @@ void print_definite_clause(DefiniteClause c) {
 }
 
 /* Function for printing defr of a single rule. */
-void print_defr(Defr *sets, int n_sets, Rule rule) {
+void print_defr(DefiniteProgram *sets, int n_sets, Rule rule) {
     printf("defᵣ(");
     print_rule(rule);
     printf(") = {");
-
     for (int i = 0; i < n_sets; i++) {
-        printf("{");
-        for (int j = 0; j < sets[i].n_clauses; j++) {
-            DefiniteClause c = sets[i].clauses[j];
-            
-            if (c.head == '/') {
-                printf("⊥ ← ");
-            } else {
-                printf("%c ← ", c.head);
-            }
-            
+        if (sets[i].n_clauses == 1 && sets[i].clauses[0].head == '0') {
+            printf("{}");
+        } else {
             printf("{");
-            for (int k = 0; k < c.n_atoms_in_body; k++) {
-                printf("%c", c.body[k]);
-                if (k < c.n_atoms_in_body - 1) printf(", ");
+            for (int j = 0; j < sets[i].n_clauses; j++) {
+                DefiniteClause c = sets[i].clauses[j];
+                if (c.head == '/') {
+                    printf("⊥ ← ");
+                } else {
+                    printf("%c ← ", c.head);
+                }
+                printf("{");
+                for (int k = 0; k < c.n_atoms_in_body; k++) {
+                    printf("%c", c.body[k]);
+                    if (k < c.n_atoms_in_body - 1) printf(",");
+                }
+                printf("}");
+                if (j < sets[i].n_clauses - 1) printf(", ");
             }
             printf("}");
-
-            if (j < sets[i].n_clauses - 1) printf(", ");
         }
-        printf("}");
         if (i < n_sets - 1) printf(", ");
     }
     printf("}\n");
 }
 
+/* Function for printing def(R). */
+void print_def(DefiniteProgram *def, int n_programs) {
+    printf("def(R) = {\n");
+    for (int i = 0; i < n_programs; i++) {
+        printf("  {");
+        for (int j = 0; j < def[i].n_clauses; j++) {
+            DefiniteClause c = def[i].clauses[j];
+            if (c.head == '/') {
+                printf("⊥ ← ");
+            } else {
+                printf("%c ← ", c.head);
+            }
+            if (c.n_atoms_in_body == 0) {
+                printf("{}");
+            } else {
+                printf("{");
+                for (int k = 0; k < c.n_atoms_in_body; k++) {
+                    printf("%c", c.body[k]);
+                    if (k < c.n_atoms_in_body - 1)
+                        printf(", ");
+                }
+                printf("}");
+            }
+            if (j < def[i].n_clauses - 1)
+                printf(", ");
+        }
+        printf("}");
+        if (i < n_programs - 1)
+            printf(",\n");
+        else
+            printf("\n");
+    }
+    printf("}\n");
+}
+
 int main() {
-    // Add facts
     int n_atoms_in_facts = 3;
     char facts[] = {'p', 'q', 'r'};
         
-    // Add rules to array of rules
     int n_of_rules = 3;
     Rule *rules = safe_malloc(n_of_rules * sizeof(Rule));
 
@@ -197,15 +310,13 @@ int main() {
     Atom r3_head[] = { '/' };
     rules[2] = encode_rule(2, 1, r3_body, r3_head, IMPERATIVE);
     
-    // Initialize definite clauses
     int n_clauses1;
     int n_clauses2;
     int n_clauses3;
-    Defr *defr1 = encode_defr(rules[0], &n_clauses1);
-    Defr *defr2 = encode_defr(rules[1], &n_clauses2);
-    Defr *defr3 = encode_defr(rules[2], &n_clauses3);
+    DefiniteProgram *defr1 = encode_defr(rules[0], &n_clauses1);
+    DefiniteProgram *defr2 = encode_defr(rules[1], &n_clauses2);
+    DefiniteProgram *defr3 = encode_defr(rules[2], &n_clauses3);
     
-    // Print stuff
     print_facts(facts, n_atoms_in_facts);
     printf("Rules: \n");
     for (int i = 0; i < n_of_rules; i++) {
@@ -215,13 +326,23 @@ int main() {
     print_defr(defr1, n_clauses1, rules[0]);
     print_defr(defr2, n_clauses2, rules[1]);
     print_defr(defr3, n_clauses3, rules[2]);
+    
+    int n_total_programs;
+    DefiniteProgram *def = encode_def(rules, 3, &n_total_programs);
+    print_def(def, n_total_programs);
 
-    // Free memory allocations
-    for (int i=0; i<n_of_rules; i++) {
+    for (int i = 0; i < n_total_programs; i++) {
+        for (int j = 0; j < def[i].n_clauses; j++) {
+            free(def[i].clauses[j].body);
+        }
+        free(def[i].clauses);
+    }
+    free(def);
+
+    for (int i = 0; i < 3; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
-    free(rules);
     return 0;
 }
 
