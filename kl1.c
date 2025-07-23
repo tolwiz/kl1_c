@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 /* Safe malloc. */
 void *safe_malloc(size_t size) {
@@ -9,6 +10,16 @@ void *safe_malloc(size_t size) {
         exit(EXIT_FAILURE);
     }
     return ptr;
+}
+
+/* Safe realloc. */
+void *safe_realloc(void *ptr, size_t size) {
+    void *new_ptr = realloc(ptr, size);
+    if (!new_ptr) {
+        perror("Realloc failed!");
+        exit(EXIT_FAILURE);
+    }
+    return new_ptr;
 }
 
 /* Define data structure for a single atom. */
@@ -40,6 +51,29 @@ typedef struct {
     DefiniteClause *clauses;
     int n_clauses;
 } DefiniteProgram;
+
+/* Define data structure for performed acts. */
+typedef struct {
+    Atom *acts;
+    int n_atoms_in_performed_acts;
+    int capacity;
+} PerformedActs;
+
+/* Function for initializing performed acts. */
+void init_performed_acts(PerformedActs *acts) {
+    acts->n_atoms_in_performed_acts = 0;
+    acts->capacity = 4;
+    acts->acts = safe_malloc(acts->capacity * sizeof(Atom));
+}
+
+/* Function for adding an atom to performed acts. */
+void push_atom_to_performed_acts(PerformedActs *acts, Atom a) {
+    if (acts->n_atoms_in_performed_acts == acts->capacity) {
+        acts->capacity *= 2;
+        acts->acts = safe_realloc(acts->acts, acts->capacity * sizeof(Atom));
+    }
+    acts->acts[acts->n_atoms_in_performed_acts++] = a;
+}
 
 /* Function for encoding single rule. */
 Rule encode_rule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head[], RuleType ruletype) {
@@ -122,7 +156,8 @@ DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
 }
 
 /* Function for translating a set of rules into a set of 
- * definite programs, namely def(R). */
+ * definite programs, namely def(R). 
+ * TODO: enum for constraints */
 DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
     
     /* Compute defᵣ(r) for each rule. */
@@ -182,6 +217,37 @@ DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
     return all_programs;
 }
 
+/* Function for computing the least model of a definite program D. */
+Atom *compute_least_model(DefiniteProgram definite_program, Atom *facts, int n_atoms_in_facts) {
+    PerformedActs performed_acts;
+    init_performed_acts(&performed_acts);
+
+    /* M0(D, A) = A */
+    for (int i = 0; i < n_atoms_in_facts; i++) {
+        push_atom_to_performed_acts(&performed_acts, facts[i]);
+    }
+
+    /* Induction */
+    bool continue_induction = true;
+    while (continue_induction) {
+        for (int i = 0; i < definite_program.n_clauses; i++) {
+            for (int j = 0; j < definite_program.clauses[i].n_atoms_in_body; j++) {
+                int count = 0;
+                for (int k = 0; performed_acts.n_atoms_in_performed_acts; k++) {
+                    if (definite_program.clauses[i].body[j] == performed_acts.acts[k]) {
+                        count++;
+                    }
+                }
+                if (count == definite_program.clauses[i].n_atoms_in_body) {
+                    push_atom_to_performed_acts(&performed_acts, definite_program.clauses[i].head);
+                }
+            }
+        }
+    }
+    //performed_acts = realloc(performed_acts, count * sizeof(Atom));
+    return performed_acts.acts;
+}
+
 /* Function for printing all atoms already performed, A in paper. */
 void print_facts(Atom facts[], int n_atoms_in_facts) {
     printf("Facts: ");
@@ -196,7 +262,7 @@ void print_facts(Atom facts[], int n_atoms_in_facts) {
 void print_rule(Rule r) {
     for (int i = 0; i < r.n_atoms_in_body; i++) {
         printf("%c", r.body[i]);
-        if (i < r.n_atoms_in_body - 1) printf("∧");
+        if (i < r.n_atoms_in_body - 1) printf(" ∧ ");
     }
     if (r.ruletype == IMPERATIVE) {
         printf(" ⊢ ");
@@ -208,7 +274,7 @@ void print_rule(Rule r) {
     } else {
         for (int i = 0; i < r.n_atoms_in_head; i++) {
             printf("%c", r.head[i]);
-            if (i < r.n_atoms_in_head - 1) printf("∨");
+            if (i < r.n_atoms_in_head - 1) printf(" ∨ ");
         }
     }
 }
@@ -272,21 +338,27 @@ int main() {
     int n_atoms_in_facts = 3;
     char facts[] = {'p', 'q', 'r'};
         
-    int n_of_rules = 2;
+    int n_of_rules = 3;
     Rule *rules = safe_malloc(n_of_rules * sizeof(Rule));
 
-    Atom r1_body[] = { 'p' };
-    Atom r1_head[] = { 'q', 'r' };
-    rules[0] = encode_rule(1, 2, r1_body, r1_head, PERMISSIVE);
+    Atom r1_body[] = { 'p', 'q' };
+    Atom r1_head[] = { 'r', 's' };
+    rules[0] = encode_rule(2, 2, r1_body, r1_head, PERMISSIVE);
 
-    Atom r2_body[] = { 'r' }; 
-    Atom r2_head[] = { 's' };
-    rules[1] = encode_rule(1, 1, r2_body, r2_head, IMPERATIVE);
+    Atom r2_body[] = { 'r', 's' }; 
+    Atom r2_head[] = { 't', 'u' };
+    rules[1] = encode_rule(2, 2, r2_body, r2_head, IMPERATIVE);
+    
+    Atom r3_body[] = { 'x', 'y' }; 
+    Atom r3_head[] = { '/' };
+    rules[2] = encode_rule(2, 1, r3_body, r3_head, IMPERATIVE);
     
     int n_clauses1;
     int n_clauses2;
+    int n_clauses3;
     DefiniteProgram *defr1 = encode_defr(rules[0], &n_clauses1);
     DefiniteProgram *defr2 = encode_defr(rules[1], &n_clauses2);
+    DefiniteProgram *defr3 = encode_defr(rules[2], &n_clauses3);
     
     print_facts(facts, n_atoms_in_facts);
     printf("Rules: \n");
@@ -294,12 +366,20 @@ int main() {
         print_rule(rules[i]);
         printf("\n");
     }
+    printf("\n");
     print_defr(defr1, n_clauses1, rules[0]);
     print_defr(defr2, n_clauses2, rules[1]);
+    print_defr(defr3, n_clauses3, rules[2]);
     
     int n_total_programs;
-    DefiniteProgram *def = encode_def(rules, 2, &n_total_programs);
+    DefiniteProgram *def = encode_def(rules, 3, &n_total_programs);
+    printf("\n");
     print_def(def, n_total_programs);
+
+    for (int i = 0; i < n_total_programs; i++) {
+        compute_least_model(def[i], facts, n_atoms_in_facts);
+        
+    }
 
     for (int i = 0; i < n_total_programs; i++) {
         for (int j = 0; j < def[i].n_clauses; j++) {
@@ -309,7 +389,7 @@ int main() {
     }
     free(def);
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 3; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
