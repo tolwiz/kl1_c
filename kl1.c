@@ -217,40 +217,164 @@ DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
     return all_programs;
 }
 
-/* Function for computing the least model of a definite program D. */
-Atom *compute_least_model(DefiniteProgram definite_program, Atom *facts, int n_atoms_in_facts) {
-    PerformedActs performed_acts;
-    init_performed_acts(&performed_acts);
+/* Compute the least model of a definite program D given
+ * an initial set of facts A. This is a fixed-point computation:
+ * at each step, we add to the model all heads of clauses whose
+ * bodies are satisfied by the current model.
+ */
+Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_size) {
+    PerformedActs M;
+    init_performed_acts(&M);
 
     /* M0(D, A) = A */
-    for (int i = 0; i < n_atoms_in_facts; i++) {
-        push_atom_to_performed_acts(&performed_acts, facts[i]);
-    }
+    for (int i = 0; i < n_facts; i++)
+        push_atom_to_performed_acts(&M, facts[i]);
 
-    /* Induction */
-    bool continue_induction = true;
-    while (continue_induction) {
-        for (int i = 0; i < definite_program.n_clauses; i++) {
-            for (int j = 0; j < definite_program.clauses[i].n_atoms_in_body; j++) {
-                int count = 0;
-                for (int k = 0; performed_acts.n_atoms_in_performed_acts; k++) {
-                    if (definite_program.clauses[i].body[j] == performed_acts.acts[k]) {
-                        count++;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int i = 0; i < D.n_clauses; i++) {
+            /* Check if all atoms in the body are already in M. */
+            bool body_ok = true;
+            for (int j = 0; j < D.clauses[i].n_atoms_in_body; j++) {
+                Atom a = D.clauses[i].body[j];
+                bool found = false;
+                for (int k = 0; k < M.n_atoms_in_performed_acts; k++) {
+                    if (M.acts[k] == a) {
+                        found = true;
+                        break;
                     }
                 }
-                if (count == definite_program.clauses[i].n_atoms_in_body) {
-                    push_atom_to_performed_acts(&performed_acts, definite_program.clauses[i].head);
+                if (!found) {
+                    body_ok = false;
+                    break;
+                }
+            }
+
+            /* If body is satisfied and head not already in M, add it. */
+            if (body_ok) {
+                Atom h = D.clauses[i].head;
+                bool in_M = false;
+                for (int k = 0; k < M.n_atoms_in_performed_acts; k++) {
+                    if (M.acts[k] == h) {
+                        in_M = true;
+                        break;
+                    }
+                }
+                if (!in_M) {
+                    push_atom_to_performed_acts(&M, h);
+                    changed = true;
                 }
             }
         }
     }
-    //performed_acts = realloc(performed_acts, count * sizeof(Atom));
-    return performed_acts.acts;
+
+    *out_size = M.n_atoms_in_performed_acts;
+    return M.acts;
+}
+
+/* Function for computing cnsᵈ(R, A). */
+Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_models, int **model_sizes) {
+    int n_total_programs;
+    DefiniteProgram *def = encode_def(R, n_rules, &n_total_programs);
+    Atom **cnsd = safe_malloc(n_total_programs * sizeof(Atom *));
+    *model_sizes = safe_malloc(n_total_programs * sizeof(int));
+    *n_out_models = 0;
+
+    for (int i = 0; i < n_total_programs; i++) {
+        int model_size;
+        Atom *model = compute_least_model(def[i], A, n_facts, &model_size);
+
+        /* Check for duplicates. */
+        int duplicate = 0;
+        for (int j = 0; j < *n_out_models; j++) {
+            if (model_size != (*model_sizes)[j]) continue;
+            int equal = 1;
+            for (int k = 0; k < model_size; k++) {
+                int found = 0;
+                for (int l = 0; l < model_size; l++) {
+                    if (model[k] == cnsd[j][l]) {
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) {
+                    equal = 0;
+                    break;
+                }
+            }
+            if (equal) {
+                duplicate = 1;
+                break;
+            }
+        }
+        if (!duplicate) {
+            cnsd[*n_out_models] = model;
+            (*model_sizes)[*n_out_models] = model_size;
+            (*n_out_models)++;
+        } else {
+            free(model);
+        }
+    }
+    free(def);
+    return cnsd;
+}
+
+bool satisfies_constraints(Rule *R, int n_rules, Atom *model, int model_size) {
+    for (int i = 0; i < n_rules; i++) {
+        Rule r = R[i];
+        if (r.ruletype == IMPERATIVE && r.n_atoms_in_head == 1 && r.head[0] == '/') {
+            /* It is a constraint: B ⊢ ⊥ */
+            bool body_satisfied = true;
+            for (int j = 0; j < r.n_atoms_in_body; j++) {
+                bool found = false;
+                for (int k = 0; k < model_size; k++) {
+                    if (r.body[j] == model[k]) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    body_satisfied = false;
+                    break;
+                }
+            }
+            if (body_satisfied) return false;
+        }
+    }
+    return true;
+}
+
+/* Function for computing out1. */
+Atom **compute_out1(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **model_sizes) {
+    /* Compute all M(D, A). */
+    int total;
+    int *sizes;
+    Atom **cnsd = compute_cnsd(R, n_rules, A, n_facts, &total, &sizes);
+
+    /* Filter the models which violate constraints. */    
+    Atom **out1 = safe_malloc(total * sizeof(Atom *));
+    *model_sizes = safe_malloc(total * sizeof(int));
+    *n_models = 0;
+
+    for (int i = 0; i < total; i++) {
+        if (satisfies_constraints(R, n_rules, cnsd[i], sizes[i])) {
+            out1[*n_models] = cnsd[i];
+            (*model_sizes)[*n_models] = sizes[i];
+            (*n_models)++;
+        } else {
+            free(cnsd[i]);
+        }
+    }
+
+    free(cnsd);
+    free(sizes);
+    return out1;
 }
 
 /* Function for printing all atoms already performed, A in paper. */
-void print_facts(Atom facts[], int n_atoms_in_facts) {
-    printf("Facts: ");
+void print_atoms(Atom facts[], int n_atoms_in_facts) {
+    printf("Atoms: ");
     for (int i = 0; i < n_atoms_in_facts; i++) {
         printf("%c", facts[i]);
         if (i < n_atoms_in_facts-1) printf(", ");
@@ -349,7 +473,7 @@ int main() {
     Atom r2_head[] = { 't', 'u' };
     rules[1] = encode_rule(2, 2, r2_body, r2_head, IMPERATIVE);
     
-    Atom r3_body[] = { 'x', 'y' }; 
+    Atom r3_body[] = { 'r', 's' }; 
     Atom r3_head[] = { '/' };
     rules[2] = encode_rule(2, 1, r3_body, r3_head, IMPERATIVE);
     
@@ -360,7 +484,7 @@ int main() {
     DefiniteProgram *defr2 = encode_defr(rules[1], &n_clauses2);
     DefiniteProgram *defr3 = encode_defr(rules[2], &n_clauses3);
     
-    print_facts(facts, n_atoms_in_facts);
+    print_atoms(facts, n_atoms_in_facts);
     printf("Rules: \n");
     for (int i = 0; i < n_of_rules; i++) {
         print_rule(rules[i]);
@@ -376,11 +500,23 @@ int main() {
     printf("\n");
     print_def(def, n_total_programs);
 
-    for (int i = 0; i < n_total_programs; i++) {
-        compute_least_model(def[i], facts, n_atoms_in_facts);
-        
-    }
+    int n_models;
+    int *model_sizes;
 
+    Atom **out1 = compute_out1(rules, n_of_rules, facts, n_atoms_in_facts, &n_models, &model_sizes);
+
+    for (int i = 0; i < n_models; i++) {
+        printf("Model %d: {", i);
+        for (int j = 0; j < model_sizes[i]; j++) {
+            printf("%c", out1[i][j]);
+            if (j < model_sizes[i] - 1) printf(", ");
+        }
+        printf("}\n");
+        free(out1[i]);
+    }
+    free(out1);
+    free(model_sizes);
+    
     for (int i = 0; i < n_total_programs; i++) {
         for (int j = 0; j < def[i].n_clauses; j++) {
             free(def[i].clauses[j].body);
