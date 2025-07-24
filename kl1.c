@@ -2,6 +2,47 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+/* ============ Typedef ============ */
+
+/* Typedef for a single atom. */
+typedef char Atom;
+
+/* Typedef for a single rule. */
+typedef enum {
+    IMPERATIVE,
+    PERMISSIVE
+} RuleType;
+
+typedef struct {
+    Atom *body;
+    int n_atoms_in_body;
+    Atom *head;
+    int n_atoms_in_head;
+    RuleType ruletype;
+} Rule;
+
+/* Typedef for a single definite clause. */
+typedef struct {
+    Atom *body;
+    int n_atoms_in_body;
+    Atom head;
+} DefiniteClause;
+
+/* Typedef for a single definite program. */
+typedef struct {
+    DefiniteClause *clauses;
+    int n_clauses;
+} DefiniteProgram;
+
+/* Typedef for performed acts. */
+typedef struct {
+    Atom *acts;
+    int n_atoms_in_performed_acts;
+    int capacity;
+} PerformedActs;
+
+/* ============ Utils ============ */
+
 /* Safe malloc. */
 void *safe_malloc(size_t size) {
     void *ptr = malloc(size);
@@ -22,43 +63,6 @@ void *safe_realloc(void *ptr, size_t size) {
     return new_ptr;
 }
 
-/* Define data structure for a single atom. */
-typedef char Atom;
-
-/* Define data structure for a single rule. */
-typedef enum {
-    IMPERATIVE,
-    PERMISSIVE
-} RuleType;
-
-typedef struct {
-    Atom *body;
-    int n_atoms_in_body;
-    Atom *head;
-    int n_atoms_in_head;
-    RuleType ruletype;
-} Rule;
-
-/* Define data structure for a single definite clause. */
-typedef struct {
-    Atom *body;
-    int n_atoms_in_body;
-    Atom head;
-} DefiniteClause;
-
-/* Define data structure for a single definite program. */
-typedef struct {
-    DefiniteClause *clauses;
-    int n_clauses;
-} DefiniteProgram;
-
-/* Define data structure for performed acts. */
-typedef struct {
-    Atom *acts;
-    int n_atoms_in_performed_acts;
-    int capacity;
-} PerformedActs;
-
 /* Function for initializing performed acts. */
 void init_performed_acts(PerformedActs *acts) {
     acts->n_atoms_in_performed_acts = 0;
@@ -75,21 +79,39 @@ void push_atom_to_performed_acts(PerformedActs *acts, Atom a) {
     acts->acts[acts->n_atoms_in_performed_acts++] = a;
 }
 
-/* Function for encoding single rule. */
-Rule encode_rule(int n_atoms_in_body, int n_atoms_in_head, char body[], char head[], RuleType ruletype) {
+/* ============ Functions for computing stuff ============ */
+
+/* Encode a rule given body, head, and rule type.
+ * Allocate and copy both body and head into the rule structure.
+ */
+Rule encode_rule(int n_body, int n_head, Atom *body, Atom *head, RuleType ruletype) {
     Rule r;
-    r.n_atoms_in_body = n_atoms_in_body;
-    r.body = safe_malloc(n_atoms_in_body * sizeof(char));
-    for (int i = 0; i < n_atoms_in_body; i++) r.body[i] = body[i];
-    r.n_atoms_in_head = n_atoms_in_head;
-    r.head = safe_malloc(n_atoms_in_head * sizeof(char));
-    for (int i = 0; i < n_atoms_in_head; i++) r.head[i] = head[i];
+
+    // Copy body
+    r.n_atoms_in_body = n_body;
+    r.body = safe_malloc(n_body * sizeof(Atom));
+    for (int i = 0; i < n_body; i++) {
+        r.body[i] = body[i];
+    }
+
+    // Copy head or set ⊥ for constraint
+    if (n_head == 0) {
+        r.n_atoms_in_head = 1;
+        r.head = safe_malloc(sizeof(Atom));
+        r.head[0] = '/';  // Special char meaning ⊥
+    } else {
+        r.n_atoms_in_head = n_head;
+        r.head = safe_malloc(n_head * sizeof(Atom));
+        for (int i = 0; i < n_head; i++) {
+            r.head[i] = head[i];
+        }
+    }
     r.ruletype = ruletype;
     return r;
 }
 
-/* Function for encoding defr. */
-DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
+/* Function for computing defr. */
+DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
     int n_atoms_in_head = rule.n_atoms_in_head;
 
     /* Void head. */
@@ -158,13 +180,13 @@ DefiniteProgram *encode_defr(Rule rule, int *n_definite_programs) {
 /* Function for translating a set of rules into a set of 
  * definite programs, namely def(R). 
  * TODO: enum for constraints */
-DefiniteProgram *encode_def(Rule *rules, int n_rules, int *n_total_programs) {
+DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
     
     /* Compute defᵣ(r) for each rule. */
     int *n_options = safe_malloc(n_rules * sizeof(int)); // Total number of definite programs 
     DefiniteProgram **defrs = safe_malloc(n_rules * sizeof(DefiniteProgram *));    
     for (int i = 0; i < n_rules; i++) {
-        defrs[i] = encode_defr(rules[i], &n_options[i]);
+        defrs[i] = compute_defr(rules[i], &n_options[i]);
     }
     
     /* Compute total number of definite programs in def(R). */
@@ -234,6 +256,7 @@ Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_
     while (changed) {
         changed = false;
         for (int i = 0; i < D.n_clauses; i++) {
+            if (D.clauses[i].head == '/') continue;
             /* Check if all atoms in the body are already in M. */
             bool body_ok = true;
             for (int j = 0; j < D.clauses[i].n_atoms_in_body; j++) {
@@ -268,7 +291,6 @@ Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_
             }
         }
     }
-
     *out_size = M.n_atoms_in_performed_acts;
     return M.acts;
 }
@@ -276,7 +298,7 @@ Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_
 /* Function for computing cnsᵈ(R, A). */
 Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_models, int **model_sizes) {
     int n_total_programs;
-    DefiniteProgram *def = encode_def(R, n_rules, &n_total_programs);
+    DefiniteProgram *def = compute_def(R, n_rules, &n_total_programs);
     Atom **cnsd = safe_malloc(n_total_programs * sizeof(Atom *));
     *model_sizes = safe_malloc(n_total_programs * sizeof(int));
     *n_out_models = 0;
@@ -320,28 +342,35 @@ Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_model
     return cnsd;
 }
 
+/* Function for checking if a model satisfies constraints. */
 bool satisfies_constraints(Rule *R, int n_rules, Atom *model, int model_size) {
     for (int i = 0; i < n_rules; i++) {
         Rule r = R[i];
-        if (r.ruletype == IMPERATIVE && r.n_atoms_in_head == 1 && r.head[0] == '/') {
-            /* It is a constraint: B ⊢ ⊥ */
-            bool body_satisfied = true;
+        if (r.ruletype == IMPERATIVE &&
+            r.n_atoms_in_head == 1 &&
+            r.head[0] == '/') {
+
+            /* Constraint: ⊢ ⊥ means body must NOT be satisfied */
+            bool violated = true;
             for (int j = 0; j < r.n_atoms_in_body; j++) {
+                Atom a = r.body[j];
                 bool found = false;
                 for (int k = 0; k < model_size; k++) {
-                    if (r.body[j] == model[k]) {
+                    if (model[k] == a) {
                         found = true;
                         break;
                     }
                 }
                 if (!found) {
-                    body_satisfied = false;
+                    violated = false;
                     break;
                 }
             }
-            if (body_satisfied) return false;
+            /* Constraint violated. */
+            if (violated) return false;
         }
     }
+    /* All constraints are satisfied. */
     return true;
 }
 
@@ -366,20 +395,21 @@ Atom **compute_out1(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, i
             free(cnsd[i]);
         }
     }
-
     free(cnsd);
     free(sizes);
     return out1;
 }
 
-/* Function for printing all atoms already performed, A in paper. */
+/* ============ Functions for I/O  ============ */
+
+/* Function for printing a set of atoms. */
 void print_atoms(Atom facts[], int n_atoms_in_facts) {
-    printf("Atoms: ");
+    printf("A: \n");
     for (int i = 0; i < n_atoms_in_facts; i++) {
         printf("%c", facts[i]);
         if (i < n_atoms_in_facts-1) printf(", ");
     }
-    printf("\n");
+    printf("\n\n");
 }
 
 /* Function for printing a single rule. */
@@ -458,77 +488,167 @@ void print_def(DefiniteProgram *def, int n_programs) {
     printf("}\n");
 }
 
-int main() {
-    int n_atoms_in_facts = 3;
-    char facts[] = {'p', 'q', 'r'};
+/* Function for printing a set of models. */
+void print_models(const char *label, Atom **models, int *sizes, int n_models) {
+    printf("%s = {\n", label);
+    for (int i = 0; i < n_models; i++) {
+        printf("  {");
+        for (int j = 0; j < sizes[i]; j++) {
+            printf("%c", models[i][j]);
+            if (j < sizes[i] - 1) printf(", ");
+        }
+        printf("}");
+        if (i < n_models - 1) printf(",\n");
+        else printf("\n");
+    }
+    printf("}\n");
+}
+
+/* Read facts and rules from the user.
+ * Each fact is a single lowercase letter.
+ * Each rule has a body (AND of atoms) and a head (OR of atoms),
+ * and is either imperative (⊢) or permissive (⊣).
+ * A rule with no head atoms and ruletype == IMPERATIVE is treated as a constraint (⊢ ⊥).
+ */
+void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
+    printf("Number of facts: ");
+    scanf("%d", n_facts);
+    *facts = safe_malloc(*n_facts * sizeof(Atom));
+    printf("Enter facts (single lowercase letters):\n");
+    for (int i = 0; i < *n_facts; i++) {
+        printf("  Fact %d: ", i + 1);
+        scanf(" %c", &(*facts)[i]);
+    }
+    printf("\nNumber of rules: ");
+    scanf("%d", n_rules);
+    *rules = safe_malloc(*n_rules * sizeof(Rule));
+    for (int i = 0; i < *n_rules; i++) {
+        printf("\n--- Rule %d ---\n", i + 1);
+
+        // === Body ===
+        int n_body;
+        printf("  Number of atoms in body: ");
+        scanf("%d", &n_body);
+        Atom *body = safe_malloc(n_body * sizeof(Atom));
+        for (int j = 0; j < n_body; j++) {
+            printf("    Body atom %d: ", j + 1);
+            scanf(" %c", &body[j]);
+        }
+
+        // === Head ===
+        int n_head;
+        printf("  Number of atoms in head (0 for constraint): ");
+        scanf("%d", &n_head);
+        Atom *head = NULL;
+        if (n_head > 0) {
+            head = safe_malloc(n_head * sizeof(Atom));
+            for (int j = 0; j < n_head; j++) {
+                printf("    Head atom %d: ", j + 1);
+                scanf(" %c", &head[j]);
+            }
+        }
+
+        // === Rule type ===
+        char type;
+        printf("  Rule type (i = ⊢, p = ⊣): ");
+        scanf(" %c", &type);
+        RuleType ruletype = (type == 'i') ? IMPERATIVE : PERMISSIVE;
+
+        // === Store rule ===
+        Rule r;
+        r.n_atoms_in_body = n_body;
+        r.body = safe_malloc(n_body * sizeof(Atom));
+        for (int j = 0; j < n_body; j++) r.body[j] = body[j];
+        if (n_head == 0) {
         
-    int n_of_rules = 3;
-    Rule *rules = safe_malloc(n_of_rules * sizeof(Rule));
+            /* Encode constraint as head = { '/'} and n_atoms_in_head = 1 */
+            r.n_atoms_in_head = 1;
+            r.head = safe_malloc(sizeof(Atom));
+            r.head[0] = '/';
+        } else {
+            r.n_atoms_in_head = n_head;
+            r.head = safe_malloc(n_head * sizeof(Atom));
+            for (int j = 0; j < n_head; j++) r.head[j] = head[j];
+        }
 
-    Atom r1_body[] = { 'p', 'q' };
-    Atom r1_head[] = { 'r', 's' };
-    rules[0] = encode_rule(2, 2, r1_body, r1_head, PERMISSIVE);
+        r.ruletype = ruletype;
+        (*rules)[i] = r;
 
-    Atom r2_body[] = { 'r', 's' }; 
-    Atom r2_head[] = { 't', 'u' };
-    rules[1] = encode_rule(2, 2, r2_body, r2_head, IMPERATIVE);
+        free(body);
+        if (head) free(head);
+    }
+}
+
+/* ============ Main ============ */
+int main() {
+    Atom *facts;
+    int n_facts;
+    Rule *rules;
+    int n_rules;
+
+    read_input(&facts, &n_facts, &rules, &n_rules);
+    printf("\x1b[3J\x1b[H\x1b[2J"); 
+    print_atoms(facts, n_facts);
     
-    Atom r3_body[] = { 'r', 's' }; 
-    Atom r3_head[] = { '/' };
-    rules[2] = encode_rule(2, 1, r3_body, r3_head, IMPERATIVE);
-    
-    int n_clauses1;
-    int n_clauses2;
-    int n_clauses3;
-    DefiniteProgram *defr1 = encode_defr(rules[0], &n_clauses1);
-    DefiniteProgram *defr2 = encode_defr(rules[1], &n_clauses2);
-    DefiniteProgram *defr3 = encode_defr(rules[2], &n_clauses3);
-    
-    print_atoms(facts, n_atoms_in_facts);
-    printf("Rules: \n");
-    for (int i = 0; i < n_of_rules; i++) {
+    printf("R:\n");
+    for (int i = 0; i < n_rules; i++) {
         print_rule(rules[i]);
         printf("\n");
     }
-    printf("\n");
-    print_defr(defr1, n_clauses1, rules[0]);
-    print_defr(defr2, n_clauses2, rules[1]);
-    print_defr(defr3, n_clauses3, rules[2]);
     
+    printf("===========================================================\n");
+    printf("Definite programs:\n");
+    for (int i = 0; i < n_rules; i++) {
+        int n_variants;
+        DefiniteProgram *defr_i = compute_defr(rules[i], &n_variants);
+        print_defr(defr_i, n_variants, rules[i]);
+        for (int j = 0; j < n_variants; j++) {
+            for (int k = 0; k < defr_i[j].n_clauses; k++)
+                free(defr_i[j].clauses[k].body);
+            free(defr_i[j].clauses);
+        }
+        free(defr_i);
+    }
+
     int n_total_programs;
-    DefiniteProgram *def = encode_def(rules, 3, &n_total_programs);
-    printf("\n");
+    DefiniteProgram *def = compute_def(rules, n_rules, &n_total_programs);
+    printf("===========================================================\n");
     print_def(def, n_total_programs);
 
     int n_models;
-    int *model_sizes;
+    int *sizes;
+    Atom **cnsd = compute_cnsd(rules, n_rules, facts, n_facts, &n_models, &sizes);
+    printf("===========================================================\n");
+    print_models("cnsᵈ(R,A)", cnsd, sizes, n_models);
 
-    Atom **out1 = compute_out1(rules, n_of_rules, facts, n_atoms_in_facts, &n_models, &model_sizes);
+    int n_out;
+    int *out_sizes;
+    Atom **out1 = compute_out1(rules, n_rules, facts, n_facts, &n_out, &out_sizes);
+    printf("===========================================================\n");
+    print_models("out₁(R,A)", out1, out_sizes, n_out);
 
-    for (int i = 0; i < n_models; i++) {
-        printf("Model %d: {", i);
-        for (int j = 0; j < model_sizes[i]; j++) {
-            printf("%c", out1[i][j]);
-            if (j < model_sizes[i] - 1) printf(", ");
-        }
-        printf("}\n");
-        free(out1[i]);
-    }
-    free(out1);
-    free(model_sizes);
-    
+    /* Free memory */
     for (int i = 0; i < n_total_programs; i++) {
-        for (int j = 0; j < def[i].n_clauses; j++) {
+        for (int j = 0; j < def[i].n_clauses; j++)
             free(def[i].clauses[j].body);
-        }
         free(def[i].clauses);
     }
     free(def);
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < n_models; i++) free(cnsd[i]);
+    free(cnsd);
+    free(sizes);
+
+    for (int i = 0; i < n_out; i++) free(out1[i]);
+    free(out1);
+    free(out_sizes);
+
+    for (int i = 0; i < n_rules; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
+    free(rules);
+    free(facts);
+
     return 0;
 }
-
