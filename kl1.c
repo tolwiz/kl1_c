@@ -1,7 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-
 /* =========================================================================
  * kl1.c - A simple implementation of KL1 logic with model generation
  *
@@ -19,6 +15,10 @@
  * Compile with:
  *   gcc kl1.c -o kl1
  * ========================================================================= */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 /* ============ Typedef ============ */
 
