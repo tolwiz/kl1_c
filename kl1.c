@@ -2,6 +2,24 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+/* =========================================================================
+ * kl1.c - A simple implementation of KL1 logic with model generation
+ *
+ * This program takes as input:
+ *   - A set of facts A 
+ *   - A set of rules R, which can be imperative (⊢) or permissive (⊣)
+ *
+ * It computes:
+ *   - def(R): all definite programs derived from R (via defᵣ(r) for each r ∈ R)
+ *   - cnsᵈ(R,A): all least models M(D,A) for D ∈ def(R)
+ *   - out₁(R,A): all models from cnsᵈ(R,A) that satisfy all imperative constraints
+ *
+ * Rules with no head atoms and ruletype IMPERATIVE are interpreted as constraints (⊢ ⊥).
+ *
+ * Compile with:
+ *   gcc kl1.c -o kl1
+ * ========================================================================= */
+
 /* ============ Typedef ============ */
 
 /* Typedef for a single atom. */
@@ -40,6 +58,26 @@ typedef struct {
     int n_atoms_in_performed_acts;
     int capacity;
 } PerformedActs;
+
+/* Typedef for grouping input data (facts and rules). */
+typedef struct {
+    Atom *facts;
+    int n_facts;
+    Rule *rules;
+    int n_rules;
+} KnowledgeBase;
+
+/* Typedef for grouping result sets of computations. */
+typedef struct {
+    DefiniteProgram *def_programs;
+    int n_def_programs;
+    Atom **cnsd;
+    int *cnsd_sizes;
+    int n_cnsd_models;
+    Atom **out1;
+    int *out1_sizes;
+    int n_out1_models;
+} Results;
 
 /* ============ Utils ============ */
 
@@ -86,19 +124,21 @@ void push_atom_to_performed_acts(PerformedActs *acts, Atom a) {
  */
 Rule encode_rule(int n_body, int n_head, Atom *body, Atom *head, RuleType ruletype) {
     Rule r;
-
-    // Copy body
+    
+    /* Copy body */
     r.n_atoms_in_body = n_body;
     r.body = safe_malloc(n_body * sizeof(Atom));
     for (int i = 0; i < n_body; i++) {
         r.body[i] = body[i];
     }
-
-    // Copy head or set ⊥ for constraint
+    
+    /* Copy head or set ⊥ for constraint */
     if (n_head == 0) {
         r.n_atoms_in_head = 1;
         r.head = safe_malloc(sizeof(Atom));
-        r.head[0] = '/';  // Special char meaning ⊥
+        
+        /* Special char meaning ⊥. */
+        r.head[0] = '/'; 
     } else {
         r.n_atoms_in_head = n_head;
         r.head = safe_malloc(n_head * sizeof(Atom));
@@ -110,10 +150,10 @@ Rule encode_rule(int n_body, int n_head, Atom *body, Atom *head, RuleType rulety
     return r;
 }
 
-/* Function for computing defr. */
+/* Function for computing defᵣ for a given rule. */
 DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
     int n_atoms_in_head = rule.n_atoms_in_head;
-
+    
     /* Void head. */
     if (n_atoms_in_head == 0) {
         DefiniteProgram *defr = safe_malloc(sizeof(DefiniteProgram));
@@ -122,52 +162,52 @@ DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
         defr[0].clauses[0].head = '/';
         defr[0].clauses[0].n_atoms_in_body = rule.n_atoms_in_body;
         defr[0].clauses[0].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
-        for (int i = 0; i < rule.n_atoms_in_body; i++) defr[0].clauses[0].body[i] = rule.body[i];
+        for (int i = 0; i < rule.n_atoms_in_body; i++) {
+            defr[0].clauses[0].body[i] = rule.body[i];
+        }
         *n_definite_programs = 1;
         return defr;
     }
-
-    /* 2^n possible subsets of C. */
+    
+    /* 2^n possible subsets of head (C). */
     int total_subsets = 1 << n_atoms_in_head;
     DefiniteProgram *defr = safe_malloc(total_subsets * sizeof(DefiniteProgram));
     int n_definite_programs_generated = 0;
-
-    /* Cycle through all possible binary masks ie all 
-     * possible subsets of C. */
-    for(int bitmask = 0; bitmask < total_subsets; bitmask++) { 
+    
+    /* Cycle through all possible binary masks i.e., all subsets of head atoms. */
+    for (int bitmask = 0; bitmask < total_subsets; bitmask++) {
         int clause_count = 0;
-
-        /* Count how many atoms we have in the subset 
-         * mask, to know how many clauses there will be in 
-         * defr for this subset. */
-        for (int i = 0; i < n_atoms_in_head; i++) 
-            if (bitmask & (1 << i)) clause_count++; 
-
-        /* If void subset and rule is imperative, skip. */
+        
+        /* Count how many atoms are in this subset (bitmask). */
+        for (int i = 0; i < n_atoms_in_head; i++) {
+            if (bitmask & (1 << i)) clause_count++;
+        }
+        
+        /* If void subset and rule is imperative, skip (constraint cannot be empty for ⊢). */
         if (clause_count == 0 && rule.ruletype == IMPERATIVE) continue;
-
-        /* If void subset and rule is permissive, add empty program. */
+        
+        /* If void subset and rule is permissive, add an empty program. */
         if (clause_count == 0 && rule.ruletype == PERMISSIVE) {
             defr[n_definite_programs_generated].n_clauses = 0;
             defr[n_definite_programs_generated].clauses = NULL;
             n_definite_programs_generated++;
             continue;
         }
-        defr[n_definite_programs_generated].n_clauses = clause_count; 
-
+        defr[n_definite_programs_generated].n_clauses = clause_count;
+        
         /* Allocate the right number of clauses in defr. */
         defr[n_definite_programs_generated].clauses = safe_malloc(clause_count * sizeof(DefiniteClause));
-
-        /* Every time an atom is selected in bitmask, write 
-         * it in clauses[clause_index], then iterate at next slot. */
-        int clause_index = 0; 
+        
+        /* For each selected atom in bitmask, create a clause in the definite program. */
+        int clause_index = 0;
         for (int i = 0; i < n_atoms_in_head; i++) {
             if (bitmask & (1 << i)) {
                 defr[n_definite_programs_generated].clauses[clause_index].head = rule.head[i];
                 defr[n_definite_programs_generated].clauses[clause_index].n_atoms_in_body = rule.n_atoms_in_body;
                 defr[n_definite_programs_generated].clauses[clause_index].body = safe_malloc(rule.n_atoms_in_body * sizeof(Atom));
-                for (int j = 0; j < rule.n_atoms_in_body; j++) 
+                for (int j = 0; j < rule.n_atoms_in_body; j++) {
                     defr[n_definite_programs_generated].clauses[clause_index].body[j] = rule.body[j];
+                }
                 clause_index++;
             }
         }
@@ -178,27 +218,25 @@ DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
 }
 
 /* Function for translating a set of rules into a set of 
- * definite programs, namely def(R). 
- * TODO: enum for constraints */
+ * definite programs, namely def(R). */
 DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
     
-    /* Compute defᵣ(r) for each rule. */
-    int *n_options = safe_malloc(n_rules * sizeof(int)); // Total number of definite programs 
-    DefiniteProgram **defrs = safe_malloc(n_rules * sizeof(DefiniteProgram *));    
+    /* Compute defᵣ(r) for each rule and count options per rule. */
+    int *n_options = safe_malloc(n_rules * sizeof(int));
+    DefiniteProgram **defrs = safe_malloc(n_rules * sizeof(DefiniteProgram *));
     for (int i = 0; i < n_rules; i++) {
         defrs[i] = compute_defr(rules[i], &n_options[i]);
     }
     
     /* Compute total number of definite programs in def(R). */
     int total = 1;
-    for (int i = 0; i < n_rules; i++) total *= n_options[i];
+    for (int i = 0; i < n_rules; i++) {
+        total *= n_options[i];
+    }
     *n_total_programs = total;
     DefiniteProgram *all_programs = safe_malloc(total * sizeof(DefiniteProgram));
     
-    /* Cycle through all the combinations. p is the index for the 
-     * current combination, compute which element of defᵣ(rᵢ) to choose 
-     * for each rule, using division and module to run through all 
-     * combinations. */
+    /* Cycle through all combinations of choices (one from each defᵣ(rᵢ)). */
     for (int p = 0; p < total; p++) {
         int *choice = safe_malloc(n_rules * sizeof(int));
         int quotient = p;
@@ -207,9 +245,7 @@ DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
             quotient /= n_options[i];
         }
         
-        /* Unify all choosen clauses in a definite program, adding
-         * the number of total clauses of the current combination and 
-         * allocating the space for the current definite program. */
+        /* Combine chosen clauses from each rule to form one definite program. */
         int total_clauses = 0;
         for (int i = 0; i < n_rules; i++) {
             total_clauses += defrs[i][choice[i]].n_clauses;
@@ -217,7 +253,7 @@ DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
         all_programs[p].n_clauses = total_clauses;
         all_programs[p].clauses = safe_malloc(total_clauses * sizeof(DefiniteClause));
         
-        /* Copy the clauses from each choosen definite program. */
+        /* Copy clauses from each selected definite program into all_programs[p]. */
         int idx = 0;
         for (int i = 0; i < n_rules; i++) {
             DefiniteProgram selected = defrs[i][choice[i]];
@@ -247,17 +283,20 @@ DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
 Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_size) {
     PerformedActs M;
     init_performed_acts(&M);
-
+    
     /* M0(D, A) = A */
-    for (int i = 0; i < n_facts; i++)
+    for (int i = 0; i < n_facts; i++) {
         push_atom_to_performed_acts(&M, facts[i]);
-
+    }
     bool changed = true;
     while (changed) {
         changed = false;
         for (int i = 0; i < D.n_clauses; i++) {
-            if (D.clauses[i].head == '/') continue;
-            /* Check if all atoms in the body are already in M. */
+
+            /* Skip constraints (head = ⊥). */
+            if (D.clauses[i].head == '/') continue; 
+            
+            /* Check if all atoms in the clause's body are already in M. */
             bool body_ok = true;
             for (int j = 0; j < D.clauses[i].n_atoms_in_body; j++) {
                 Atom a = D.clauses[i].body[j];
@@ -273,7 +312,7 @@ Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_
                     break;
                 }
             }
-
+            
             /* If body is satisfied and head not already in M, add it. */
             if (body_ok) {
                 Atom h = D.clauses[i].head;
@@ -302,12 +341,11 @@ Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_model
     Atom **cnsd = safe_malloc(n_total_programs * sizeof(Atom *));
     *model_sizes = safe_malloc(n_total_programs * sizeof(int));
     *n_out_models = 0;
-
     for (int i = 0; i < n_total_programs; i++) {
         int model_size;
         Atom *model = compute_least_model(def[i], A, n_facts, &model_size);
-
-        /* Check for duplicates. */
+        
+        /* Check for duplicates before adding the model to cnsd. */
         int duplicate = 0;
         for (int j = 0; j < *n_out_models; j++) {
             if (model_size != (*model_sizes)[j]) continue;
@@ -342,15 +380,15 @@ Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_model
     return cnsd;
 }
 
-/* Function for checking if a model satisfies constraints. */
+/* Function for checking if a model satisfies all constraints in R. */
 bool satisfies_constraints(Rule *R, int n_rules, Atom *model, int model_size) {
     for (int i = 0; i < n_rules; i++) {
         Rule r = R[i];
         if (r.ruletype == IMPERATIVE &&
             r.n_atoms_in_head == 1 &&
             r.head[0] == '/') {
-
-            /* Constraint: ⊢ ⊥ means body must NOT be satisfied */
+            
+            /* Constraint (⊢ ⊥): the rule's body must *not* be fully satisfied by the model. */
             bool violated = true;
             for (int j = 0; j < r.n_atoms_in_body; j++) {
                 Atom a = r.body[j];
@@ -366,26 +404,28 @@ bool satisfies_constraints(Rule *R, int n_rules, Atom *model, int model_size) {
                     break;
                 }
             }
-            /* Constraint violated. */
+            
+            /* If constraint is violated (body satisfied => ⊥), model is not valid. */
             if (violated) return false;
         }
     }
-    /* All constraints are satisfied. */
+
+    /* All constraints satisfied. */
     return true;
 }
 
-/* Function for computing out1. */
+/* Function for computing out₁(R, A). */
 Atom **compute_out1(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **model_sizes) {
-    /* Compute all M(D, A). */
+    
+    /* Compute all models M(D, A) for each definite program D in def(R). */
     int total;
     int *sizes;
     Atom **cnsd = compute_cnsd(R, n_rules, A, n_facts, &total, &sizes);
-
-    /* Filter the models which violate constraints. */    
+    
+    /* Filter out models that violate any constraints in R. */
     Atom **out1 = safe_malloc(total * sizeof(Atom *));
     *model_sizes = safe_malloc(total * sizeof(int));
     *n_models = 0;
-
     for (int i = 0; i < total; i++) {
         if (satisfies_constraints(R, n_rules, cnsd[i], sizes[i])) {
             out1[*n_models] = cnsd[i];
@@ -400,14 +440,14 @@ Atom **compute_out1(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, i
     return out1;
 }
 
-/* ============ Functions for I/O  ============ */
+/* ============ Functions for I/O ============ */
 
 /* Function for printing a set of atoms. */
 void print_atoms(Atom facts[], int n_atoms_in_facts) {
     printf("A: \n");
     for (int i = 0; i < n_atoms_in_facts; i++) {
         printf("%c", facts[i]);
-        if (i < n_atoms_in_facts-1) printf(", ");
+        if (i < n_atoms_in_facts - 1) printf(", ");
     }
     printf("\n\n");
 }
@@ -433,7 +473,7 @@ void print_rule(Rule r) {
     }
 }
 
-/* Function for printing a single definite clause, with optional trailing comma. */
+/* Function for printing a single definite clause (with optional trailing comma). */
 void print_definite_clause(DefiniteClause c, int with_comma) {
     if (c.head == '/') {
         printf("⊥ ← ");
@@ -508,7 +548,8 @@ void print_models(const char *label, Atom **models, int *sizes, int n_models) {
  * Each fact is a single lowercase letter.
  * Each rule has a body (AND of atoms) and a head (OR of atoms),
  * and is either imperative (⊢) or permissive (⊣).
- * A rule with no head atoms and ruletype == IMPERATIVE is treated as a constraint (⊢ ⊥).
+ * A rule with no head atoms and ruletype == IMPERATIVE is treated as a 
+ * constraint (⊢ ⊥).
  */
 void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
     printf("Number of facts: ");
@@ -524,7 +565,6 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
     *rules = safe_malloc(*n_rules * sizeof(Rule));
     for (int i = 0; i < *n_rules; i++) {
         printf("\n--- Rule %d ---\n", i + 1);
-
         // === Body ===
         int n_body;
         printf("  Number of atoms in body: ");
@@ -534,7 +574,6 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
             printf("    Body atom %d: ", j + 1);
             scanf(" %c", &body[j]);
         }
-
         // === Head ===
         int n_head;
         printf("  Number of atoms in head (0 for constraint): ");
@@ -547,21 +586,18 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
                 scanf(" %c", &head[j]);
             }
         }
-
         // === Rule type ===
         char type;
         printf("  Rule type (i = ⊢, p = ⊣): ");
         scanf(" %c", &type);
         RuleType ruletype = (type == 'i') ? IMPERATIVE : PERMISSIVE;
-
         // === Store rule ===
         Rule r;
         r.n_atoms_in_body = n_body;
         r.body = safe_malloc(n_body * sizeof(Atom));
         for (int j = 0; j < n_body; j++) r.body[j] = body[j];
         if (n_head == 0) {
-        
-            /* Encode constraint as head = { '/'} and n_atoms_in_head = 1 */
+            /* Encode constraint as head = {'/'} and n_atoms_in_head = 1 */
             r.n_atoms_in_head = 1;
             r.head = safe_malloc(sizeof(Atom));
             r.head[0] = '/';
@@ -570,85 +606,111 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
             r.head = safe_malloc(n_head * sizeof(Atom));
             for (int j = 0; j < n_head; j++) r.head[j] = head[j];
         }
-
         r.ruletype = ruletype;
         (*rules)[i] = r;
-
         free(body);
         if (head) free(head);
     }
 }
 
-/* ============ Main ============ */
-int main() {
-    Atom *facts;
-    int n_facts;
-    Rule *rules;
-    int n_rules;
+/* ============ Session and cleanup functions ============ */
 
-    read_input(&facts, &n_facts, &rules, &n_rules);
-    printf("\x1b[3J\x1b[H\x1b[2J"); 
-    print_atoms(facts, n_facts);
-    
+/* Utility function to print a separator line for output sections. */
+void print_separator(void) {
+    printf("===========================================================\n");
+}
+
+/* Function to clear screen and display all input facts and rules. */
+void print_knowledge_base(const KnowledgeBase *kb) {
+    printf("\x1b[3J\x1b[H\x1b[2J");
+    print_atoms(kb->facts, kb->n_facts);
     printf("R:\n");
-    for (int i = 0; i < n_rules; i++) {
-        print_rule(rules[i]);
+    for (int i = 0; i < kb->n_rules; i++) {
+        print_rule(kb->rules[i]);
         printf("\n");
     }
-    
-    printf("===========================================================\n");
-    printf("Definite programs:\n");
-    for (int i = 0; i < n_rules; i++) {
-        int n_variants;
-        DefiniteProgram *defr_i = compute_defr(rules[i], &n_variants);
-        print_defr(defr_i, n_variants, rules[i]);
-        for (int j = 0; j < n_variants; j++) {
-            for (int k = 0; k < defr_i[j].n_clauses; k++)
-                free(defr_i[j].clauses[k].body);
-            free(defr_i[j].clauses);
+}
+
+/* Free an array of DefiniteProgram structures and their contents. */
+void free_definite_programs(DefiniteProgram *programs, int count) {
+    for (int i = 0; i < count; i++) {
+        for (int j = 0; j < programs[i].n_clauses; j++) {
+            free(programs[i].clauses[j].body);
         }
-        free(defr_i);
+        free(programs[i].clauses);
     }
+    free(programs);
+}
 
-    int n_total_programs;
-    DefiniteProgram *def = compute_def(rules, n_rules, &n_total_programs);
-    printf("===========================================================\n");
-    print_def(def, n_total_programs);
-
-    int n_models;
-    int *sizes;
-    Atom **cnsd = compute_cnsd(rules, n_rules, facts, n_facts, &n_models, &sizes);
-    printf("===========================================================\n");
-    print_models("cnsᵈ(R,A)", cnsd, sizes, n_models);
-
-    int n_out;
-    int *out_sizes;
-    Atom **out1 = compute_out1(rules, n_rules, facts, n_facts, &n_out, &out_sizes);
-    printf("===========================================================\n");
-    print_models("out₁(R,A)", out1, out_sizes, n_out);
-
-    /* Free memory */
-    for (int i = 0; i < n_total_programs; i++) {
-        for (int j = 0; j < def[i].n_clauses; j++)
-            free(def[i].clauses[j].body);
-        free(def[i].clauses);
+/* Free an array of models (Atom arrays) and their sizes. */
+void free_models(Atom **models, int *sizes, int count) {
+    for (int i = 0; i < count; i++) {
+        free(models[i]);
     }
-    free(def);
-
-    for (int i = 0; i < n_models; i++) free(cnsd[i]);
-    free(cnsd);
+    free(models);
     free(sizes);
+}
 
-    for (int i = 0; i < n_out; i++) free(out1[i]);
-    free(out1);
-    free(out_sizes);
-
-    for (int i = 0; i < n_rules; i++) {
+/* Free an array of Rule structures and their allocated fields. */
+void free_rules(Rule *rules, int count) {
+    for (int i = 0; i < count; i++) {
         free(rules[i].body);
         free(rules[i].head);
     }
     free(rules);
-    free(facts);
+}
 
+/* Free all memory associated with a KnowledgeBase (facts and rules). */
+void free_knowledge_base(KnowledgeBase *kb) {
+    free_rules(kb->rules, kb->n_rules);
+    free(kb->facts);
+}
+
+/* Run the interactive session: read input and compute all outputs. */
+void run_interactive_session(void) {
+    
+    /* Read input data from user. */
+    KnowledgeBase kb;
+    read_input(&kb.facts, &kb.n_facts, &kb.rules, &kb.n_rules);
+
+    /* Display the input data. */
+    print_knowledge_base(&kb);
+
+    /* Compute and display defᵣ for each rule. */
+    print_separator();
+    printf("Definite programs:\n");
+    for (int i = 0; i < kb.n_rules; i++) {
+        int n_variants;
+        DefiniteProgram *defr_set = compute_defr(kb.rules[i], &n_variants);
+        print_defr(defr_set, n_variants, kb.rules[i]);
+        free_definite_programs(defr_set, n_variants);
+    }
+
+    /* Compute and display def(R). */
+    Results results;
+    results.def_programs = compute_def(kb.rules, kb.n_rules, &results.n_def_programs);
+    print_separator();
+    print_def(results.def_programs, results.n_def_programs);
+
+    /* Compute and display cnsᵈ(R,A). */
+    results.cnsd = compute_cnsd(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_cnsd_models, &results.cnsd_sizes);
+    print_separator();
+    print_models("cnsᵈ(R,A)", results.cnsd, results.cnsd_sizes, results.n_cnsd_models);
+
+    /* Compute and display out₁(R,A). */
+    results.out1 = compute_out1(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_out1_models, &results.out1_sizes);
+    print_separator();
+    print_models("out₁(R,A)", results.out1, results.out1_sizes, results.n_out1_models);
+
+    /* Free all allocated memory. */
+    free_definite_programs(results.def_programs, results.n_def_programs);
+    free_models(results.cnsd, results.cnsd_sizes, results.n_cnsd_models);
+    free_models(results.out1, results.out1_sizes, results.n_out1_models);
+    free_knowledge_base(&kb);
+}
+
+/* ============ Main ============ */
+int main() {
+    run_interactive_session();
     return 0;
 }
