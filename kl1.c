@@ -565,7 +565,8 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
     *rules = safe_malloc(*n_rules * sizeof(Rule));
     for (int i = 0; i < *n_rules; i++) {
         printf("\n--- Rule %d ---\n", i + 1);
-        // === Body ===
+        
+        /* === Body === */
         int n_body;
         printf("  Number of atoms in body: ");
         scanf("%d", &n_body);
@@ -574,7 +575,8 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
             printf("    Body atom %d: ", j + 1);
             scanf(" %c", &body[j]);
         }
-        // === Head ===
+
+        /* === Head === */
         int n_head;
         printf("  Number of atoms in head (0 for constraint): ");
         scanf("%d", &n_head);
@@ -586,17 +588,20 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
                 scanf(" %c", &head[j]);
             }
         }
-        // === Rule type ===
+
+        /* === Rule type === */
         char type;
         printf("  Rule type (i = ⊢, p = ⊣): ");
         scanf(" %c", &type);
         RuleType ruletype = (type == 'i') ? IMPERATIVE : PERMISSIVE;
-        // === Store rule ===
+        
+        /* === Store rule === */
         Rule r;
         r.n_atoms_in_body = n_body;
         r.body = safe_malloc(n_body * sizeof(Atom));
         for (int j = 0; j < n_body; j++) r.body[j] = body[j];
         if (n_head == 0) {
+
             /* Encode constraint as head = {'/'} and n_atoms_in_head = 1 */
             r.n_atoms_in_head = 1;
             r.head = safe_malloc(sizeof(Atom));
