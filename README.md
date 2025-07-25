@@ -1,6 +1,6 @@
 ![KL1 Logic](./1.jpg)
 
-# KL1
+# KL1 in C
 
 A tiny interactive implementation of KL1 logic in plain C.
 **KL1** is a non-classical logic by R. Evans, M.Sergot and A.Stephenson, which formalizes **cognitive acts** as the basic units of inference. Developed to model Kant’s conception of rules in the *Critique of Pure Reason*, KL1 treats rules as **procedures** for generating acts (such as *subsumptions*) conditionally on other acts.
