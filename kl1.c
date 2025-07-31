@@ -151,7 +151,7 @@ Rule encode_rule(int n_body, int n_head, Atom *body, Atom *head, RuleType rulety
 }
 
 /* Function for computing defᵣ for a given rule. */
-DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
+DefiniteProgram *defr(Rule rule, int *n_definite_programs) {
     int n_atoms_in_head = rule.n_atoms_in_head;
     
     /* Void head. */
@@ -219,13 +219,13 @@ DefiniteProgram *compute_defr(Rule rule, int *n_definite_programs) {
 
 /* Function for translating a set of rules into a set of 
  * definite programs, namely def(R). */
-DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
+DefiniteProgram *defR(Rule *rules, int n_rules, int *n_total_programs) {
     
     /* Compute defᵣ(r) for each rule and count options per rule. */
     int *n_options = safe_malloc(n_rules * sizeof(int));
     DefiniteProgram **defrs = safe_malloc(n_rules * sizeof(DefiniteProgram *));
     for (int i = 0; i < n_rules; i++) {
-        defrs[i] = compute_defr(rules[i], &n_options[i]);
+        defrs[i] = defr(rules[i], &n_options[i]);
     }
     
     /* Compute total number of definite programs in def(R). */
@@ -280,7 +280,7 @@ DefiniteProgram *compute_def(Rule *rules, int n_rules, int *n_total_programs) {
  * at each step, we add to the model all heads of clauses whose
  * bodies are satisfied by the current model.
  */
-Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_size) {
+Atom *least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_size) {
     PerformedActs M;
     init_performed_acts(&M);
     
@@ -335,15 +335,15 @@ Atom *compute_least_model(DefiniteProgram D, Atom *facts, int n_facts, int *out_
 }
 
 /* Function for computing cnsᵈ(R, A). */
-Atom **compute_cnsd(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_models, int **model_sizes) {
+Atom **cns_star(Rule *R, int n_rules, Atom *A, int n_facts, int *n_out_models, int **model_sizes) {
     int n_total_programs;
-    DefiniteProgram *def = compute_def(R, n_rules, &n_total_programs);
+    DefiniteProgram *def = defR(R, n_rules, &n_total_programs);
     Atom **cnsd = safe_malloc(n_total_programs * sizeof(Atom *));
     *model_sizes = safe_malloc(n_total_programs * sizeof(int));
     *n_out_models = 0;
     for (int i = 0; i < n_total_programs; i++) {
         int model_size;
-        Atom *model = compute_least_model(def[i], A, n_facts, &model_size);
+        Atom *model = least_model(def[i], A, n_facts, &model_size);
         
         /* Check for duplicates before adding the model to cnsd. */
         int duplicate = 0;
@@ -415,12 +415,12 @@ bool satisfies_constraints(Rule *R, int n_rules, Atom *model, int model_size) {
 }
 
 /* Function for computing out₁(R, A). */
-Atom **compute_out1(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **model_sizes) {
+Atom **out(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **model_sizes) {
     
     /* Compute all models M(D, A) for each definite program D in def(R). */
     int total;
     int *sizes;
-    Atom **cnsd = compute_cnsd(R, n_rules, A, n_facts, &total, &sizes);
+    Atom **cnsd = cns_star(R, n_rules, A, n_facts, &total, &sizes);
     
     /* Filter out models that violate any constraints in R. */
     Atom **out1 = safe_malloc(total * sizeof(Atom *));
@@ -686,24 +686,24 @@ void run_interactive_session(void) {
     printf("Definite programs:\n");
     for (int i = 0; i < kb.n_rules; i++) {
         int n_variants;
-        DefiniteProgram *defr_set = compute_defr(kb.rules[i], &n_variants);
+        DefiniteProgram *defr_set = defr(kb.rules[i], &n_variants);
         print_defr(defr_set, n_variants, kb.rules[i]);
         free_definite_programs(defr_set, n_variants);
     }
 
     /* Compute and display def(R). */
     Results results;
-    results.def_programs = compute_def(kb.rules, kb.n_rules, &results.n_def_programs);
+    results.def_programs = defR(kb.rules, kb.n_rules, &results.n_def_programs);
     print_separator();
     print_def(results.def_programs, results.n_def_programs);
 
     /* Compute and display cnsᵈ(R,A). */
-    results.cnsd = compute_cnsd(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_cnsd_models, &results.cnsd_sizes);
+    results.cnsd = cns_star(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_cnsd_models, &results.cnsd_sizes);
     print_separator();
     print_models("cnsᵈ(R,A)", results.cnsd, results.cnsd_sizes, results.n_cnsd_models);
 
     /* Compute and display out₁(R,A). */
-    results.out1 = compute_out1(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_out1_models, &results.out1_sizes);
+    results.out1 = out(kb.rules, kb.n_rules, kb.facts, kb.n_facts, &results.n_out1_models, &results.out1_sizes);
     print_separator();
     print_models("out₁(R,A)", results.out1, results.out1_sizes, results.n_out1_models);
 
