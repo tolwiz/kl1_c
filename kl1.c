@@ -1,5 +1,5 @@
 /* =========================================================================
- * kl1.c - A simple implementation of KL1 logic with model generation
+ * Simple implementation of the KL1 logic
  *
  * This program takes as input:
  *   - A set of facts A 
@@ -11,7 +11,11 @@
  *   - out₁(R,A): all models from cnsᵈ(R,A) that satisfy all imperative constraints
  *
  * Rules with no head atoms and ruletype IMPERATIVE are interpreted as constraints (⊢ ⊥).
- *
+ * 
+ * This code uses verbose variable names to highlight the semantic correspondence 
+ * with the KL1 logic formalism and is not optimized in terms of computational 
+ * cost, aiming to make the implementation didactically clear.
+ * 
  * Compile with:
  *   gcc kl1.c -o kl1
  * ========================================================================= */
@@ -117,7 +121,7 @@ void push_atom_to_performed_acts(PerformedActs *acts, Atom a) {
     acts->acts[acts->n_atoms_in_performed_acts++] = a;
 }
 
-/* ============ Functions for computing stuff ============ */
+/* ============ Computation ============ */
 
 /* Encode a rule given body, head, and rule type.
  * Allocate and copy both body and head into the rule structure.
@@ -440,7 +444,7 @@ Atom **out(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **mode
     return out1;
 }
 
-/* ============ Functions for I/O ============ */
+/* ====================== I/O ====================== */
 
 /* Function for printing a set of atoms. */
 void print_atoms(Atom facts[], int n_atoms_in_facts) {
