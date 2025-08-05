@@ -1,30 +1,32 @@
-/* =========================================================================
- * Simple implementation of the KL1 logic
- *
- * This program takes as input:
- *   - A set of facts A 
- *   - A set of rules R, which can be imperative (⊢) or permissive (⊣)
- *
- * It computes:
- *   - def(R): all definite programs derived from R (via defᵣ(r) for each r ∈ R)
- *   - cnsᵈ(R,A): all least models M(D,A) for D ∈ def(R)
- *   - out₁(R,A): all models from cnsᵈ(R,A) that satisfy all imperative constraints
- *
- * Rules with no head atoms and ruletype IMPERATIVE are interpreted as constraints (⊢ ⊥).
- * 
- * This code uses verbose variable names to highlight the semantic correspondence 
- * with the KL1 logic formalism and is not optimized in terms of computational 
- * cost, aiming to make the implementation didactically clear.
- * 
- * Compile with:
- *   gcc kl1.c -o kl1
- * ========================================================================= */
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *                                                                                         *
+ * Simple implementation of the KL1 logic                                                  *
+ *                                                                                         *
+ * This program takes as input:                                                            *
+ *   - A set of facts A                                                                    *
+ *   - A set of rules R, which can be imperative (⊢) or permissive (⊣)                     *
+ *                                                                                         *
+ * It computes:                                                                            *
+ *   - def(R): all definite programs derived from R (via defᵣ(r) for each r ∈ R)           *
+ *   - cnsᵈ(R,A): all least models M(D,A) for D ∈ def(R)                                   *
+ *   - out₁(R,A): all models from cnsᵈ(R,A) that satisfy all imperative constraints        *
+ *                                                                                         *
+ * Rules with no head atoms and ruletype IMPERATIVE are interpreted as constraints (⊢ ⊥).  *
+ *                                                                                         *
+ * This code uses verbose variable names to highlight the semantic correspondence          *
+ * with the KL1 logic formalism and is not optimized in terms of computational             *
+ * cost, aiming to make the implementation didactically clear.                             *
+ *                                                                                         *
+ * Compile with:                                                                           *
+ *   gcc kl1.c -o kl1                                                                      *
+ *                                                                                         *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
-/* ============ Typedef ============ */
+/* * * * * * * * * * * * * * * * * * * * Typedef * * * * * * * * * * * * * * * * * * * * * */
 
 /* Typedef for a single atom. */
 typedef char Atom;
@@ -83,7 +85,7 @@ typedef struct {
     int n_out1_models;
 } Results;
 
-/* ============ Utils ============ */
+/* * * * * * * * * * * * * * * * * * * * Utils * * * * * * * * * * * * * * * * * * * * * * */
 
 /* Safe malloc. */
 void *safe_malloc(size_t size) {
@@ -121,7 +123,7 @@ void push_atom_to_performed_acts(PerformedActs *acts, Atom a) {
     acts->acts[acts->n_atoms_in_performed_acts++] = a;
 }
 
-/* ============ Computation ============ */
+/* * * * * * * * * * * * * * * * * * * Computation * * * * * * * * * * * * * * * * * * * * */
 
 /* Encode a rule given body, head, and rule type.
  * Allocate and copy both body and head into the rule structure.
@@ -444,7 +446,7 @@ Atom **out(Rule *R, int n_rules, Atom *A, int n_facts, int *n_models, int **mode
     return out1;
 }
 
-/* ====================== I/O ====================== */
+/* * * * * * * * * * * * * * * * * * * * I/O * * * * * * * * * * * * * * * * * * * * * */
 
 /* Function for printing a set of atoms. */
 void print_atoms(Atom facts[], int n_atoms_in_facts) {
@@ -622,7 +624,7 @@ void read_input(Atom **facts, int *n_facts, Rule **rules, int *n_rules) {
     }
 }
 
-/* ============ Session and cleanup functions ============ */
+/* * * * * * * * * * * * * * * * * * * Session * * * * * * * * * * * * * * * * * * * * */
 
 /* Utility function to print a separator line for output sections. */
 void print_separator(void) {
@@ -718,7 +720,8 @@ void run_interactive_session(void) {
     free_knowledge_base(&kb);
 }
 
-/* ============ Main ============ */
+/* * * * * * * * * * * * * * * * * * * Main * * * * * * * * * * * * * * * * * * * * */
+
 int main() {
     run_interactive_session();
     return 0;
