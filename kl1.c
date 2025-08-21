@@ -677,9 +677,9 @@ void free_knowledge_base(KnowledgeBase *kb) {
     free(kb->facts);
 }
 
-/* Run the interactive session: read input and compute all outputs. */
-void run_interactive_session(void) {
-    
+/* * * * * * * * * * * * * * * * * * * Main * * * * * * * * * * * * * * * * * * * * */
+
+int main() {
     /* Read input data from user. */
     KnowledgeBase kb;
     read_input(&kb.facts, &kb.n_facts, &kb.rules, &kb.n_rules);
@@ -718,11 +718,6 @@ void run_interactive_session(void) {
     free_models(results.cnsd, results.cnsd_sizes, results.n_cnsd_models);
     free_models(results.out1, results.out1_sizes, results.n_out1_models);
     free_knowledge_base(&kb);
-}
 
-/* * * * * * * * * * * * * * * * * * * Main * * * * * * * * * * * * * * * * * * * * */
-
-int main() {
-    run_interactive_session();
     return 0;
 }
